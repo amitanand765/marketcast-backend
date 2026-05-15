@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import feedparser
+import requests
 import yfinance as yf
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +15,26 @@ warnings.filterwarnings("ignore")
 
 app = FastAPI(title="MarketCast API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# Browser-like headers to avoid being blocked
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Cache-Control": "no-cache",
+}
+
+NEWS_FEEDS = [
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^NSEI&region=IN&lang=en-US", "source": "Yahoo Finance"},
+    {"url": "https://economictimes.indiatimes.com/markets/stocks/rss.cms",                   "source": "ET Markets"},
+    {"url": "https://economictimes.indiatimes.com/markets/rss.cms",                           "source": "ET Markets"},
+    {"url": "https://feeds.reuters.com/reuters/INbusinessNews",                               "source": "Reuters India"},
+    {"url": "https://www.thehindu.com/business/markets/?service=rss",                        "source": "The Hindu Business"},
+    {"url": "https://www.business-standard.com/rss/markets-106.rss",                         "source": "Business Standard"},
+    {"url": "https://www.livemint.com/rss/markets",                                           "source": "Live Mint"},
+]
 
 def nse(symbol):
     m = {"NIFTY":"^NSEI","BANKNIFTY":"^NSEBANK","SENSEX":"^BSESN",
@@ -38,9 +59,9 @@ def arima_forecast(prices, days=30):
     try:
         clean = [p for p in prices if p == p]
         model = ARIMA(clean, order=(2,1,2))
-        fit = model.fit()
-        fc = fit.forecast(steps=days)
-        ci = fit.get_forecast(steps=days).conf_int(alpha=0.2)
+        fit   = model.fit()
+        fc    = fit.forecast(steps=days)
+        ci    = fit.get_forecast(steps=days).conf_int(alpha=0.2)
         return {
             "predicted": [safe_float(v) for v in fc],
             "upper":     [safe_float(v) for v in ci.iloc[:,1]],
@@ -67,13 +88,11 @@ def forecast_dates(days):
 def intraday_forecast(price, pct):
     times=["9:15","9:30","9:45","10:00","10:30","11:00","11:30",
            "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30"]
-    p=price
-    step=(pct/100)/len(times)
-    np.random.seed(int(abs(price))%9999)
-    result=[]
+    p=price; step=(pct/100)/len(times)
+    np.random.seed(int(abs(price))%9999); result=[]
     for i,t in enumerate(times):
-        p += p*step + np.random.normal(0, price*0.001)
-        conf = price*(0.003+i*0.0005)
+        p += p*step + np.random.normal(0,price*0.001)
+        conf=price*(0.003+i*0.0005)
         result.append({
             "time":t,
             "predicted":round(p,2),
@@ -99,8 +118,8 @@ def get_technicals(df):
         bb_mid= close.rolling(20).mean()
         bb_std= close.rolling(20).std()
         return {
-            "rsi":rsi, "macd":macd, "macd_signal":signal,
-            "sma20":sma20, "sma50":sma50,
+            "rsi":rsi,"macd":macd,"macd_signal":signal,
+            "sma20":sma20,"sma50":sma50,
             "bb_upper":safe_float((bb_mid+2*bb_std).iloc[-1]),
             "bb_lower":safe_float((bb_mid-2*bb_std).iloc[-1]),
         }
@@ -109,9 +128,9 @@ def get_technicals(df):
 
 def get_sentiment(text):
     pos=["surge","rally","gain","profit","growth","record","strong","beat",
-         "rise","high","up","bull","positive","upgrade","buy"]
+         "rise","high","up","bull","positive","upgrade","buy","jump","soar"]
     neg=["fall","drop","loss","decline","weak","miss","down","bear",
-         "negative","crash","slump","concern","risk","downgrade","sell"]
+         "negative","crash","slump","concern","risk","downgrade","sell","plunge"]
     t=text.lower()
     p=sum(1 for w in pos if w in t)
     n=sum(1 for w in neg if w in t)
@@ -119,17 +138,46 @@ def get_sentiment(text):
     if total==0: return 0.0
     return round((p-n)/total,2)
 
+def fetch_news_from_feed(feed_info, symbol=""):
+    articles = []
+    try:
+        # Try with requests first (browser headers)
+        response = requests.get(feed_info["url"], headers=HEADERS, timeout=8)
+        feed = feedparser.parse(response.content)
+        # Fallback to direct feedparser
+        if not feed.entries:
+            feed = feedparser.parse(feed_info["url"])
+        for entry in feed.entries[:8]:
+            title   = entry.get("title", "")
+            summary = entry.get("summary", entry.get("description", ""))
+            if not title:
+                continue
+            if symbol and symbol.upper() not in title.upper() and symbol.upper() not in summary.upper():
+                continue
+            score = get_sentiment(title + " " + summary)
+            articles.append({
+                "title":     title,
+                "source":    feed_info["source"],
+                "link":      entry.get("link", ""),
+                "time":      entry.get("published", ""),
+                "sentiment": "positive" if score>0.1 else "negative" if score<-0.1 else "neutral",
+                "score":     score,
+            })
+    except:
+        pass
+    return articles
+
 @app.get("/")
 def root():
-    return {"status":"MarketCast API is running!"}
+    return {"status": "MarketCast API is running!"}
 
 @app.get("/stock/{symbol}")
-def get_stock(symbol:str):
+def get_stock(symbol: str):
     try:
         ticker = yf.Ticker(nse(symbol))
         hist   = ticker.history(period="6mo")
         if hist.empty:
-            return {"error":"Symbol not found"}
+            return {"error": "Symbol not found"}
 
         close  = hist["Close"].dropna()
         high   = hist["High"].dropna()
@@ -167,8 +215,8 @@ def get_stock(symbol:str):
             "technicals": tech,
             "forecast": {
                 "intraday": intraday_forecast(price, pct),
-                "day7":  {"dates":dates[:7], "data":fc7},
-                "day30": {"dates":dates,     "data":fc30},
+                "day7":  {"dates": dates[:7], "data": fc7},
+                "day30": {"dates": dates,     "data": fc30},
             },
             "recommendation": {
                 "action":     "BUY" if bullish else "SELL",
@@ -180,7 +228,7 @@ def get_stock(symbol:str):
             }
         }
     except Exception as e:
-        return {"error":str(e)}
+        return {"error": str(e)}
 
 @app.get("/market")
 def get_market():
@@ -191,56 +239,43 @@ def get_market():
     result={}
     for name,sym in symbols.items():
         try:
-            h = yf.Ticker(sym).history(period="2d")
+            h     = yf.Ticker(sym).history(period="2d")
             if h.empty: continue
             close = h["Close"].dropna()
             price = safe_float(close.iloc[-1])
             prev  = safe_float(close.iloc[-2])
             chg   = round(price-prev, 2)
             result[name] = {
-                "price":price,
-                "change":chg,
-                "pct":round((chg/prev)*100,2) if prev else 0
+                "price": price,
+                "change": chg,
+                "pct": round((chg/prev)*100, 2) if prev else 0
             }
         except:
             continue
     return result
 
 @app.get("/news")
-def get_news(symbol:str=""):
-    feeds=[
-        "https://www.moneycontrol.com/rss/MCtopnews.xml",
-        "https://economictimes.indiatimes.com/markets/rss.cms",
-        "https://feeds.reuters.com/reuters/INbusinessNews",
-    ]
-    articles=[]
-    for url in feeds:
+def get_news(symbol: str = ""):
+    articles = []
+    for feed_info in NEWS_FEEDS:
         try:
-            feed=feedparser.parse(url)
-            for entry in feed.entries[:6]:
-                title=entry.get("title","")
-                if symbol and symbol.upper() not in title.upper():
-                    continue
-                score=get_sentiment(title)
-                articles.append({
-                    "title":title,
-                    "source":feed.feed.get("title","News"),
-                    "link":entry.get("link",""),
-                    "time":entry.get("published",""),
-                    "sentiment":"positive" if score>0.1 else "negative" if score<-0.1 else "neutral",
-                    "score":score,
-                })
+            fetched = fetch_news_from_feed(feed_info, symbol)
+            articles.extend(fetched)
+            if len(articles) >= 20:
+                break
         except:
             continue
-    return {"news":articles,"count":len(articles)}
+    # Sort by sentiment score for relevance
+    articles = sorted(articles, key=lambda x: abs(x["score"]), reverse=True)
+    return {"news": articles[:20], "count": len(articles[:20])}
 
 @app.get("/fo/{symbol}")
-def get_fo(symbol:str):
+def get_fo(symbol: str):
     try:
-        ticker = yf.Ticker(nse(symbol))
-        hist   = ticker.history(period="3mo")
+        ticker  = yf.Ticker(nse(symbol))
+        hist    = ticker.history(period="3mo")
         if hist.empty:
-            return {"error":"Symbol not found"}
+            return {"error": "Symbol not found"}
 
         close   = hist["Close"].dropna()
         price   = safe_float(close.iloc[-1])
@@ -265,8 +300,8 @@ def get_fo(symbol:str):
             "atm":           atm,
             "forecast": {
                 "intraday": intraday_forecast(price, pct),
-                "day7":  {"dates":dates[:7], "data":fc7},
-                "day30": {"dates":dates,     "data":fc30},
+                "day7":  {"dates": dates[:7], "data": fc7},
+                "day30": {"dates": dates,     "data": fc30},
             },
             "strategy": {
                 "action":    "BUY CALL (CE)" if bullish else "BUY PUT (PE)",
@@ -282,7 +317,7 @@ def get_fo(symbol:str):
             }
         }
     except Exception as e:
-        return {"error":str(e)}
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
