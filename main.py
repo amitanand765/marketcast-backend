@@ -717,6 +717,178 @@ def get_fo(symbol:str):
     except Exception as e:
         return {"error":str(e)}
 
+
+# ── DAILY PICKS ───────────────────────────────────────────────────────────────
+
+PICK_STOCKS = [
+    {"name":"Reliance Industries","symbol":"RELIANCE","sector":"Energy"},
+    {"name":"TCS","symbol":"TCS","sector":"IT"},
+    {"name":"HDFC Bank","symbol":"HDFCBANK","sector":"Banking"},
+    {"name":"Infosys","symbol":"INFY","sector":"IT"},
+    {"name":"ICICI Bank","symbol":"ICICIBANK","sector":"Banking"},
+    {"name":"SBI","symbol":"SBIN","sector":"Banking"},
+    {"name":"Bajaj Finance","symbol":"BAJFINANCE","sector":"NBFC"},
+    {"name":"Tata Motors","symbol":"TATAMOTORS","sector":"Auto"},
+    {"name":"Sun Pharma","symbol":"SUNPHARMA","sector":"Pharma"},
+    {"name":"Adani Ports","symbol":"ADANIPORTS","sector":"Infra"},
+    {"name":"Zomato","symbol":"ZOMATO","sector":"Tech"},
+    {"name":"HAL","symbol":"HAL","sector":"Defence"},
+    {"name":"Coal India","symbol":"COALINDIA","sector":"Mining"},
+    {"name":"Axis Bank","symbol":"AXISBANK","sector":"Banking"},
+    {"name":"Maruti Suzuki","symbol":"MARUTI","sector":"Auto"},
+    {"name":"Wipro","symbol":"WIPRO","sector":"IT"},
+    {"name":"HCL Tech","symbol":"HCLTECH","sector":"IT"},
+    {"name":"L&T","symbol":"LT","sector":"Infra"},
+    {"name":"NTPC","symbol":"NTPC","sector":"Utilities"},
+    {"name":"Power Grid","symbol":"POWERGRID","sector":"Utilities"},
+    {"name":"Titan","symbol":"TITAN","sector":"Consumer"},
+    {"name":"Asian Paints","symbol":"ASIANPAINT","sector":"FMCG"},
+    {"name":"Nestle India","symbol":"NESTLEIND","sector":"FMCG"},
+    {"name":"Dr Reddys","symbol":"DRREDDY","sector":"Pharma"},
+    {"name":"Cipla","symbol":"CIPLA","sector":"Pharma"},
+    {"name":"Tata Steel","symbol":"TATASTEEL","sector":"Metals"},
+    {"name":"JSW Steel","symbol":"JSWSTEEL","sector":"Metals"},
+    {"name":"DLF","symbol":"DLF","sector":"Real Estate"},
+    {"name":"Bharti Airtel","symbol":"BHARTIARTL","sector":"Telecom"},
+    {"name":"ITC","symbol":"ITC","sector":"FMCG"},
+]
+
+def get_daily_picks_cache_key():
+    """Returns cache key based on current IST date after 5 AM"""
+    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    # If before 5 AM, use previous day's key
+    if now_ist.hour < 5:
+        now_ist = now_ist - timedelta(days=1)
+    return f"daily_picks_{now_ist.strftime('%Y%m%d')}"
+
+def get_daily_picks_ttl():
+    """Returns seconds until next 5 AM IST"""
+    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    next_5am = now_ist.replace(hour=5, minute=0, second=0, microsecond=0)
+    if now_ist.hour >= 5:
+        next_5am = next_5am + timedelta(days=1)
+    return max(3600, int((next_5am - now_ist).total_seconds()))
+
+def generate_picks():
+    """Generate picks for all stocks — runs once per day"""
+    now_ist  = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    results  = []
+
+    # Pre-fetch shared signals once (cached anyway)
+    global_data  = get_global_mood()
+    global_score = global_data.get("mood_score", 0)
+    gift_data    = get_gift_nifty()
+    gift_pct     = gift_data.get("pct", 0)
+    fii_data     = get_fii_dii_sentiment()
+    fii_score    = fii_data.get("fii_score", 0)
+
+    for stock in PICK_STOCKS:
+        try:
+            ticker = yf.Ticker(nse(stock["symbol"]))
+            hist   = ticker.history(period="6mo")
+            if hist.empty: continue
+
+            close   = hist["Close"].dropna()
+            price   = safe_float(close.iloc[-1])
+            prev    = safe_float(close.iloc[-2])
+            change  = round(price - prev, 2)
+            pct     = round((change / prev) * 100, 2) if prev else 0
+            prices  = close.tolist()
+            fc30    = arima_forecast(prices, 30)
+            fc7     = {k:v[:7] for k,v in fc30.items()}
+            tech    = get_technicals(hist)
+            bullish = fc30["predicted"][0] > price
+
+            news_score, _ = get_news_sentiment(stock["symbol"])
+            sector_pct, sector_mood = get_sector_momentum(stock["sector"])
+            oi_data   = get_options_oi(stock["symbol"])
+            oi_signal = oi_data.get("oi_signal", "Neutral")
+
+            confidence = compute_confidence(
+                bullish, tech, news_score, global_score,
+                sector_pct, fii_score, oi_signal, price,
+                gift_nifty_pct=gift_pct
+            )
+
+            results.append({
+                "name":      stock["name"],
+                "symbol":    stock["symbol"],
+                "sector":    stock["sector"],
+                "price":     price,
+                "change":    change,
+                "pct":       pct,
+                "bullish":   bullish,
+                "confidence":confidence,
+                "action":    "BUY" if bullish else "SELL",
+                "entry":     round(price * (1.002 if bullish else 0.998), 2),
+                "target":    round(price * (1.08  if bullish else 0.92 ), 2),
+                "stop_loss": round(price * (0.96  if bullish else 1.04 ), 2),
+                "signals": {
+                    "rsi":            tech.get("rsi", 50),
+                    "macd_bullish":   tech.get("macd", 0) > tech.get("macd_signal", 0),
+                    "volume_ratio":   tech.get("volume_ratio", 1.0),
+                    "news_sentiment": news_score,
+                    "global_mood":    global_data.get("overall_mood", "Neutral"),
+                    "global_avg_pct": global_data.get("avg_pct", 0),
+                    "gift_nifty_pct": gift_pct,
+                    "gift_nifty_signal": gift_data.get("signal", "Neutral"),
+                    "sector_momentum":sector_mood,
+                    "sector_pct":     sector_pct,
+                    "fii_sentiment":  fii_data.get("fii_sentiment", "Neutral"),
+                    "options_pcr":    oi_data.get("pcr", 1.0),
+                    "options_signal": oi_signal,
+                    "broke_resistance":tech.get("broke_resistance", False),
+                    "broke_support":   tech.get("broke_support", False),
+                },
+            })
+        except:
+            continue
+
+    # Sort by confidence
+    results.sort(key=lambda x: x["confidence"], reverse=True)
+    buys  = [r for r in results if r["bullish"]][:10]
+    sells = [r for r in results if not r["bullish"]][:10]
+
+    return {
+        "generated_at":    now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+        "generated_date":  now_ist.strftime("%Y-%m-%d"),
+        "next_refresh":    (now_ist.replace(hour=5,minute=0,second=0) + timedelta(days=1)).strftime("%d %b %Y, 05:00 AM IST"),
+        "total_scanned":   len(results),
+        "buy_picks":       buys,
+        "sell_picks":      sells,
+        "market_mood":     global_data.get("overall_mood", "Neutral"),
+        "gift_nifty":      gift_data.get("signal", "Neutral"),
+        "fii_activity":    fii_data.get("fii_sentiment", "Neutral"),
+    }
+
+@app.get("/daily-picks")
+def daily_picks():
+    """Returns daily picks — generated once after 5 AM IST, same all day"""
+    cache_key = get_daily_picks_cache_key()
+    cached    = cache_get(cache_key)
+    if cached:
+        cached["from_cache"] = True
+        return cached
+
+    # Generate fresh picks
+    picks = generate_picks()
+    ttl   = get_daily_picks_ttl()
+    cache_set(cache_key, picks, ttl)
+    picks["from_cache"] = False
+    return picks
+
+@app.get("/daily-picks/refresh")
+def refresh_daily_picks():
+    """Force regenerate picks — clears today's cache"""
+    cache_key = get_daily_picks_cache_key()
+    if cache_key in _cache:
+        del _cache[cache_key]
+    picks = generate_picks()
+    ttl   = get_daily_picks_ttl()
+    cache_set(cache_key, picks, ttl)
+    picks["from_cache"] = False
+    return picks
+
 if __name__ == "__main__":
     port=int(os.environ.get("PORT",8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
