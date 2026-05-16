@@ -16,24 +16,59 @@ warnings.filterwarnings("ignore")
 app = FastAPI(title="MarketCast API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Browser-like headers to avoid being blocked
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
     "Cache-Control": "no-cache",
 }
 
+# 25+ news sources covering all market segments
 NEWS_FEEDS = [
-    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^NSEI&region=IN&lang=en-US", "source": "Yahoo Finance"},
-    {"url": "https://economictimes.indiatimes.com/markets/stocks/rss.cms",                   "source": "ET Markets"},
-    {"url": "https://economictimes.indiatimes.com/markets/rss.cms",                           "source": "ET Markets"},
-    {"url": "https://feeds.reuters.com/reuters/INbusinessNews",                               "source": "Reuters India"},
-    {"url": "https://www.thehindu.com/business/markets/?service=rss",                        "source": "The Hindu Business"},
-    {"url": "https://www.business-standard.com/rss/markets-106.rss",                         "source": "Business Standard"},
-    {"url": "https://www.livemint.com/rss/markets",                                           "source": "Live Mint"},
+    # Yahoo Finance - Multiple feeds
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^NSEI&region=IN&lang=en-US",     "source": "Yahoo Finance", "tag": "NIFTY"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^BSESN&region=IN&lang=en-US",    "source": "Yahoo Finance", "tag": "SENSEX"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=RELIANCE.NS&region=IN&lang=en-US","source": "Yahoo Finance", "tag": "RELIANCE"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=TCS.NS&region=IN&lang=en-US",    "source": "Yahoo Finance", "tag": "TCS"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=HDFCBANK.NS&region=IN&lang=en-US","source": "Yahoo Finance", "tag": "HDFCBANK"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=INFY.NS&region=IN&lang=en-US",   "source": "Yahoo Finance", "tag": "INFY"},
+    {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SBIN.NS&region=IN&lang=en-US",   "source": "Yahoo Finance", "tag": "SBIN"},
+    # Economic Times
+    {"url": "https://economictimes.indiatimes.com/markets/stocks/rss.cms",         "source": "ET Markets",    "tag": "STOCKS"},
+    {"url": "https://economictimes.indiatimes.com/markets/rss.cms",                "source": "ET Markets",    "tag": "MARKET"},
+    {"url": "https://economictimes.indiatimes.com/markets/mutual-funds/rss.cms",   "source": "ET Markets",    "tag": "MF"},
+    {"url": "https://economictimes.indiatimes.com/markets/commodities/rss.cms",    "source": "ET Markets",    "tag": "COMMODITIES"},
+    {"url": "https://economictimes.indiatimes.com/markets/forex/rss.cms",          "source": "ET Markets",    "tag": "FOREX"},
+    {"url": "https://economictimes.indiatimes.com/news/economy/rss.cms",           "source": "ET Economy",    "tag": "ECONOMY"},
+    # Live Mint
+    {"url": "https://www.livemint.com/rss/markets",                                "source": "Live Mint",     "tag": "MARKET"},
+    {"url": "https://www.livemint.com/rss/companies",                              "source": "Live Mint",     "tag": "STOCKS"},
+    {"url": "https://www.livemint.com/rss/money",                                  "source": "Live Mint",     "tag": "ECONOMY"},
+    {"url": "https://www.livemint.com/rss/industry",                               "source": "Live Mint",     "tag": "SECTOR"},
+    # Business Standard
+    {"url": "https://www.business-standard.com/rss/markets-106.rss",              "source": "Business Std",  "tag": "MARKET"},
+    {"url": "https://www.business-standard.com/rss/finance-109.rss",              "source": "Business Std",  "tag": "FINANCE"},
+    {"url": "https://www.business-standard.com/rss/economy-policy-102.rss",       "source": "Business Std",  "tag": "ECONOMY"},
+    {"url": "https://www.business-standard.com/rss/companies-101.rss",            "source": "Business Std",  "tag": "STOCKS"},
+    # The Hindu Business
+    {"url": "https://www.thehindu.com/business/markets/?service=rss",             "source": "Hindu Business", "tag": "MARKET"},
+    {"url": "https://www.thehindu.com/business/?service=rss",                     "source": "Hindu Business", "tag": "ECONOMY"},
+    # Reuters
+    {"url": "https://feeds.reuters.com/reuters/INbusinessNews",                    "source": "Reuters India",  "tag": "GLOBAL"},
+    {"url": "https://feeds.reuters.com/reuters/businessNews",                      "source": "Reuters",        "tag": "GLOBAL"},
+    # Financial Express
+    {"url": "https://www.financialexpress.com/market/feed/",                       "source": "Financial Express","tag": "MARKET"},
+    # CNBC TV18
+    {"url": "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/market.xml",         "source": "CNBC TV18",      "tag": "MARKET"},
+    {"url": "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/economy.xml",        "source": "CNBC TV18",      "tag": "ECONOMY"},
+    # Moneycontrol
+    {"url": "https://www.moneycontrol.com/rss/MCtopnews.xml",                     "source": "Moneycontrol",   "tag": "MARKET"},
+    {"url": "https://www.moneycontrol.com/rss/marketreports.xml",                 "source": "Moneycontrol",   "tag": "MARKET"},
+    {"url": "https://www.moneycontrol.com/rss/stocksmarket.xml",                  "source": "Moneycontrol",   "tag": "STOCKS"},
+    {"url": "https://www.moneycontrol.com/rss/results.xml",                       "source": "Moneycontrol",   "tag": "RESULTS"},
+    {"url": "https://www.moneycontrol.com/rss/economy.xml",                       "source": "Moneycontrol",   "tag": "ECONOMY"},
+    {"url": "https://www.moneycontrol.com/rss/ipo.xml",                           "source": "Moneycontrol",   "tag": "IPO"},
 ]
 
 def nse(symbol):
@@ -128,9 +163,11 @@ def get_technicals(df):
 
 def get_sentiment(text):
     pos=["surge","rally","gain","profit","growth","record","strong","beat",
-         "rise","high","up","bull","positive","upgrade","buy","jump","soar"]
+         "rise","high","up","bull","positive","upgrade","buy","jump","soar",
+         "outperform","boost","recover","rebound","peak","milestone","exceed"]
     neg=["fall","drop","loss","decline","weak","miss","down","bear",
-         "negative","crash","slump","concern","risk","downgrade","sell","plunge"]
+         "negative","crash","slump","concern","risk","downgrade","sell","plunge",
+         "underperform","cut","warn","fear","worry","crisis","volatile","pressure"]
     t=text.lower()
     p=sum(1 for w in pos if w in t)
     n=sum(1 for w in neg if w in t)
@@ -138,28 +175,26 @@ def get_sentiment(text):
     if total==0: return 0.0
     return round((p-n)/total,2)
 
-def fetch_news_from_feed(feed_info, symbol=""):
-    articles = []
+def fetch_feed(feed_info, symbol=""):
+    articles=[]
     try:
-        # Try with requests first (browser headers)
-        response = requests.get(feed_info["url"], headers=HEADERS, timeout=8)
-        feed = feedparser.parse(response.content)
-        # Fallback to direct feedparser
+        resp = requests.get(feed_info["url"], headers=HEADERS, timeout=6)
+        feed = feedparser.parse(resp.content)
         if not feed.entries:
             feed = feedparser.parse(feed_info["url"])
-        for entry in feed.entries[:8]:
-            title   = entry.get("title", "")
-            summary = entry.get("summary", entry.get("description", ""))
-            if not title:
-                continue
+        for entry in feed.entries[:10]:
+            title   = entry.get("title","")
+            summary = entry.get("summary", entry.get("description",""))
+            if not title: continue
             if symbol and symbol.upper() not in title.upper() and symbol.upper() not in summary.upper():
                 continue
-            score = get_sentiment(title + " " + summary)
+            score = get_sentiment(title+" "+summary)
             articles.append({
                 "title":     title,
                 "source":    feed_info["source"],
-                "link":      entry.get("link", ""),
-                "time":      entry.get("published", ""),
+                "tag":       feed_info.get("tag","MARKET"),
+                "link":      entry.get("link",""),
+                "time":      entry.get("published",""),
                 "sentiment": "positive" if score>0.1 else "negative" if score<-0.1 else "neutral",
                 "score":     score,
             })
@@ -169,156 +204,136 @@ def fetch_news_from_feed(feed_info, symbol=""):
 
 @app.get("/")
 def root():
-    return {"status": "MarketCast API is running!"}
+    return {"status":"MarketCast API is running!"}
 
 @app.get("/stock/{symbol}")
-def get_stock(symbol: str):
+def get_stock(symbol:str):
     try:
         ticker = yf.Ticker(nse(symbol))
         hist   = ticker.history(period="6mo")
-        if hist.empty:
-            return {"error": "Symbol not found"}
-
+        if hist.empty: return {"error":"Symbol not found"}
         close  = hist["Close"].dropna()
         high   = hist["High"].dropna()
         low    = hist["Low"].dropna()
         volume = hist["Volume"].dropna()
-
         price  = safe_float(close.iloc[-1])
         prev   = safe_float(close.iloc[-2])
-        change = round(price-prev, 2)
-        pct    = round((change/prev)*100, 2) if prev else 0
-
+        change = round(price-prev,2)
+        pct    = round((change/prev)*100,2) if prev else 0
         prices = close.tolist()
         dates  = forecast_dates(30)
-        fc30   = arima_forecast(prices, 30)
+        fc30   = arima_forecast(prices,30)
         fc7    = {k:v[:7] for k,v in fc30.items()}
         tech   = get_technicals(hist)
-        bullish= fc30["predicted"][0] > price
-
-        confidence = min(95, max(55, 50
+        bullish= fc30["predicted"][0]>price
+        confidence=min(95,max(55,50
             +(10 if bullish and tech["rsi"]<60 else -5)
             +(10 if tech["macd"]>tech["macd_signal"] else -5)
             +(10 if price>tech["sma20"] else -5)
             +(5  if price>tech["sma50"] else -3)))
-
         return {
-            "symbol":   symbol.upper(),
-            "price":    price,
-            "change":   change,
-            "pct":      pct,
-            "high":     safe_float(high.iloc[-1]),
-            "low":      safe_float(low.iloc[-1]),
-            "volume":   safe_int(volume.iloc[-1]),
-            "week52high": safe_float(high.max()),
-            "week52low":  safe_float(low.min()),
-            "technicals": tech,
-            "forecast": {
-                "intraday": intraday_forecast(price, pct),
-                "day7":  {"dates": dates[:7], "data": fc7},
-                "day30": {"dates": dates,     "data": fc30},
+            "symbol":symbol.upper(),"price":price,"change":change,"pct":pct,
+            "high":safe_float(high.iloc[-1]),"low":safe_float(low.iloc[-1]),
+            "volume":safe_int(volume.iloc[-1]),
+            "week52high":safe_float(high.max()),"week52low":safe_float(low.min()),
+            "technicals":tech,
+            "forecast":{
+                "intraday":intraday_forecast(price,pct),
+                "day7":{"dates":dates[:7],"data":fc7},
+                "day30":{"dates":dates,"data":fc30},
             },
-            "recommendation": {
-                "action":     "BUY" if bullish else "SELL",
-                "confidence": confidence,
-                "entry":      round(price*(1.002 if bullish else 0.998), 2),
-                "target":     round(price*(1.08  if bullish else 0.92 ), 2),
-                "stop_loss":  round(price*(0.96  if bullish else 1.04 ), 2),
-                "bullish":    bullish,
+            "recommendation":{
+                "action":"BUY" if bullish else "SELL",
+                "confidence":confidence,
+                "entry":round(price*(1.002 if bullish else 0.998),2),
+                "target":round(price*(1.08 if bullish else 0.92),2),
+                "stop_loss":round(price*(0.96 if bullish else 1.04),2),
+                "bullish":bullish,
             }
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error":str(e)}
 
 @app.get("/market")
 def get_market():
-    symbols = {
-        "NIFTY":"^NSEI","SENSEX":"^BSESN","BANKNIFTY":"^NSEBANK",
-        "NIFTYIT":"^CNXIT","DOW":"^DJI","NASDAQ":"^IXIC"
-    }
+    symbols={"NIFTY":"^NSEI","SENSEX":"^BSESN","BANKNIFTY":"^NSEBANK",
+             "NIFTYIT":"^CNXIT","DOW":"^DJI","NASDAQ":"^IXIC"}
     result={}
     for name,sym in symbols.items():
         try:
-            h     = yf.Ticker(sym).history(period="2d")
+            h=yf.Ticker(sym).history(period="2d")
             if h.empty: continue
-            close = h["Close"].dropna()
-            price = safe_float(close.iloc[-1])
-            prev  = safe_float(close.iloc[-2])
-            chg   = round(price-prev, 2)
-            result[name] = {
-                "price": price,
-                "change": chg,
-                "pct": round((chg/prev)*100, 2) if prev else 0
-            }
-        except:
-            continue
+            close=h["Close"].dropna()
+            price=safe_float(close.iloc[-1])
+            prev=safe_float(close.iloc[-2])
+            chg=round(price-prev,2)
+            result[name]={"price":price,"change":chg,"pct":round((chg/prev)*100,2) if prev else 0}
+        except: continue
     return result
 
 @app.get("/news")
-def get_news(symbol: str = ""):
+def get_news(symbol:str="", tag:str="", limit:int=50):
+    seen   = set()
     articles = []
     for feed_info in NEWS_FEEDS:
-        try:
-            fetched = fetch_news_from_feed(feed_info, symbol)
-            articles.extend(fetched)
-            if len(articles) >= 20:
-                break
-        except:
+        # Filter by tag if provided
+        if tag and feed_info.get("tag","").upper() != tag.upper():
             continue
-    # Sort by sentiment score for relevance
+        fetched = fetch_feed(feed_info, symbol)
+        for a in fetched:
+            if a["title"] not in seen:
+                seen.add(a["title"])
+                articles.append(a)
+        if len(articles) >= limit:
+            break
+    # Sort: most recent sentiment first
     articles = sorted(articles, key=lambda x: abs(x["score"]), reverse=True)
-    return {"news": articles[:20], "count": len(articles[:20])}
+    return {
+        "news":    articles[:limit],
+        "count":   len(articles[:limit]),
+        "sources": list(set(a["source"] for a in articles[:limit])),
+    }
 
 @app.get("/fo/{symbol}")
-def get_fo(symbol: str):
+def get_fo(symbol:str):
     try:
-        ticker  = yf.Ticker(nse(symbol))
-        hist    = ticker.history(period="3mo")
-        if hist.empty:
-            return {"error": "Symbol not found"}
-
-        close   = hist["Close"].dropna()
-        price   = safe_float(close.iloc[-1])
-        prev    = safe_float(close.iloc[-2])
-        change  = round(price-prev, 2)
-        pct     = round((change/prev)*100, 2) if prev else 0
-        prices  = close.tolist()
-        dates   = forecast_dates(30)
-        fc30    = arima_forecast(prices, 30)
-        fc7     = {k:v[:7] for k,v in fc30.items()}
-        bullish = fc30["predicted"][0] > price
-        atm     = round(price/100)*100
-        step    = 100
-
+        ticker=yf.Ticker(nse(symbol))
+        hist=ticker.history(period="3mo")
+        if hist.empty: return {"error":"Symbol not found"}
+        close=hist["Close"].dropna()
+        price=safe_float(close.iloc[-1])
+        prev=safe_float(close.iloc[-2])
+        change=round(price-prev,2)
+        pct=round((change/prev)*100,2) if prev else 0
+        prices=close.tolist()
+        dates=forecast_dates(30)
+        fc30=arima_forecast(prices,30)
+        fc7={k:v[:7] for k,v in fc30.items()}
+        bullish=fc30["predicted"][0]>price
+        atm=round(price/100)*100
+        step=100
         return {
-            "symbol":        symbol.upper(),
-            "price":         price,
-            "change":        change,
-            "pct":           pct,
-            "bullish":       bullish,
-            "expected_move": round(fc30["predicted"][0]-price, 2),
-            "atm":           atm,
-            "forecast": {
-                "intraday": intraday_forecast(price, pct),
-                "day7":  {"dates": dates[:7], "data": fc7},
-                "day30": {"dates": dates,     "data": fc30},
+            "symbol":symbol.upper(),"price":price,"change":change,"pct":pct,
+            "bullish":bullish,"expected_move":round(fc30["predicted"][0]-price,2),"atm":atm,
+            "forecast":{
+                "intraday":intraday_forecast(price,pct),
+                "day7":{"dates":dates[:7],"data":fc7},
+                "day30":{"dates":dates,"data":fc30},
             },
-            "strategy": {
-                "action":    "BUY CALL (CE)" if bullish else "BUY PUT (PE)",
-                "strike":    atm,
-                "target":    atm+(step*2) if bullish else atm-(step*2),
-                "stop_loss": atm-(step*2) if bullish else atm+(step*2),
+            "strategy":{
+                "action":"BUY CALL (CE)" if bullish else "BUY PUT (PE)",
+                "strike":atm,
+                "target":atm+(step*2) if bullish else atm-(step*2),
+                "stop_loss":atm-(step*2) if bullish else atm+(step*2),
             },
-            "levels": {
-                "resistance2": round(price*1.04, 2),
-                "resistance1": round(price*1.02, 2),
-                "support1":    round(price*0.98, 2),
-                "support2":    round(price*0.96, 2),
+            "levels":{
+                "resistance2":round(price*1.04,2),"resistance1":round(price*1.02,2),
+                "support1":round(price*0.98,2),"support2":round(price*0.96,2),
             }
         }
     except Exception as e:
-        return {"error": str(e)}
+        return {"error":str(e)}
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port=int(os.environ.get("PORT",8080))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
