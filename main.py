@@ -80,20 +80,34 @@ NEWS_FEEDS = [
 ]
 
 GLOBAL_INDICES = {
+    # USA
     "DOW":       "^DJI",
     "NASDAQ":    "^IXIC",
     "SP500":     "^GSPC",
+    "VIX":       "^VIX",
+    "US10Y":     "^TNX",
+    # Europe
     "FTSE":      "^FTSE",
     "DAX":       "^GDAXI",
+    "CAC40":     "^FCHI",
+    # Asia
     "NIKKEI":    "^N225",
     "HANGSENG":  "^HSI",
     "SHANGHAI":  "000001.SS",
-    "GIFTNIFTY": "NIFTY50.NS",
-    "CAC40":     "^FCHI",
-    "ASX":       "^AXJO",
     "KOSPI":     "^KS11",
+    "TAIWAN":    "^TWII",
+    "STI":       "^STI",
+    "ASX":       "^AXJO",
+    # India
+    "GIFTNIFTY": "NIFTY50.NS",
     "SENSEX":    "^BSESN",
     "BANKNIFTY": "^NSEBANK",
+    "INDIAVIX":  "^INDIAVIX",
+    # Commodities
+    "CRUDE":     "CL=F",
+    "GOLD":      "GC=F",
+    "SILVER":    "SI=F",
+    "USDINR":    "USDINR=X",
 }
 
 SECTOR_INDICES = {
@@ -685,14 +699,47 @@ def get_stock(symbol:str):
 def get_market():
     cached = cache_get("market_prices")
     if cached: return cached
-    symbols={"NIFTY":"^NSEI","SENSEX":"^BSESN","BANKNIFTY":"^NSEBANK","NIFTYIT":"^CNXIT","DOW":"^DJI","NASDAQ":"^IXIC"}
+    symbols = {
+        # Indian indices
+        "NIFTY":     "^NSEI",
+        "SENSEX":    "^BSESN",
+        "BANKNIFTY": "^NSEBANK",
+        "NIFTYIT":   "^CNXIT",
+        "INDIAVIX":  "^INDIAVIX",
+        # US markets
+        "DOW":       "^DJI",
+        "NASDAQ":    "^IXIC",
+        "SP500":     "^GSPC",
+        "VIX":       "^VIX",
+        "US10Y":     "^TNX",
+        # Europe
+        "FTSE":      "^FTSE",
+        "DAX":       "^GDAXI",
+        "CAC40":     "^FCHI",
+        # Asia
+        "NIKKEI":    "^N225",
+        "HANGSENG":  "^HSI",
+        "SHANGHAI":  "000001.SS",
+        "KOSPI":     "^KS11",
+        "TAIWAN":    "^TWII",
+        "STI":       "^STI",
+        "ASX":       "^AXJO",
+        "GIFTNIFTY": "NIFTY50.NS",
+        # Commodities
+        "CRUDE":     "CL=F",
+        "GOLD":      "GC=F",
+        "SILVER":    "SI=F",
+        "USDINR":    "USDINR=X",
+    }
     result={}
     for name,sym in symbols.items():
         try:
             h=yf.Ticker(sym).history(period="2d")
             if h.empty: continue
             close=h["Close"].dropna()
-            price=safe_float(close.iloc[-1]); prev=safe_float(close.iloc[-2])
+            if len(close)<2: continue
+            price=safe_float(close.iloc[-1])
+            prev=safe_float(close.iloc[-2])
             chg=round(price-prev,2)
             result[name]={"price":price,"change":chg,"pct":round((chg/prev)*100,2) if prev else 0}
         except: continue
