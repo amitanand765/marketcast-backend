@@ -64,7 +64,7 @@ GLOBAL_INDICES = {
     "NIKKEI":    "^N225",
     "HANGSENG":  "^HSI",
     "SHANGHAI":  "000001.SS",
-    "SGXNIFTY":  "^NSEI",
+    "GIFTNIFTY": "NIFTY50.NS",   # Gift Nifty — equal priority
     "CAC40":     "^FCHI",
     "ASX":       "^AXJO",
     "KOSPI":     "^KS11",
@@ -278,6 +278,36 @@ def get_news_sentiment(symbol):
     except:
         return 0.0, []
 
+def get_gift_nifty():
+    """Fetch Gift Nifty and compute expected Nifty opening gap"""
+    try:
+        # Gift Nifty trades on NSE IFSC — use Nifty futures as proxy
+        ticker   = yf.Ticker("^NSEI")
+        hist     = ticker.history(period="2d", interval="1h")
+        if hist.empty:
+            return {"price":0,"pct":0,"expected_gap":0,"signal":"Neutral","available":False}
+        close    = hist["Close"].dropna()
+        price    = safe_float(close.iloc[-1])
+        prev_day = safe_float(close.iloc[0])
+        pct      = round((price - prev_day) / prev_day * 100, 2) if prev_day else 0
+        # Expected gap: Gift Nifty premium/discount to last close
+        nifty_hist  = yf.Ticker("^NSEI").history(period="1d")
+        nifty_close = safe_float(nifty_hist["Close"].iloc[-1]) if not nifty_hist.empty else price
+        gap_pts     = round(price - nifty_close, 2)
+        gap_pct     = round(gap_pts / nifty_close * 100, 2) if nifty_close else 0
+        signal = "Strong Bull" if gap_pct > 0.5 else "Bull" if gap_pct > 0.1 else "Bear" if gap_pct < -0.1 else "Strong Bear" if gap_pct < -0.5 else "Neutral"
+        return {
+            "price":        price,
+            "pct":          pct,
+            "expected_gap": gap_pts,
+            "gap_pct":      gap_pct,
+            "signal":       signal,
+            "available":    True,
+            "note":         "Based on Nifty futures — Gift Nifty proxy",
+        }
+    except Exception as e:
+        return {"price":0,"pct":0,"expected_gap":0,"signal":"Neutral","available":False,"error":str(e)}
+
 def get_global_mood():
     """Fetch all major global indices and compute overall mood score"""
     try:
@@ -287,13 +317,14 @@ def get_global_mood():
         total_weight  = 0
         weighted_pct  = 0.0
 
-        # Weights: US markets matter most for India
+        # Equal weights for all — Gift Nifty same as others
         weights = {
-            "DOW":1.5,"NASDAQ":1.5,"SP500":1.5,
-            "SGXNIFTY":1.2,"NIKKEI":1.0,
-            "HANGSENG":0.8,"SHANGHAI":0.8,
-            "FTSE":0.7,"DAX":0.7,"CAC40":0.6,
-            "ASX":0.5,"KOSPI":0.5,
+            "DOW":1.0,"NASDAQ":1.0,"SP500":1.0,
+            "GIFTNIFTY":1.0,                      # Equal priority
+            "NIKKEI":1.0,"HANGSENG":1.0,
+            "SHANGHAI":1.0,"FTSE":1.0,
+            "DAX":1.0,"CAC40":1.0,
+            "ASX":1.0,"KOSPI":1.0,
             "SENSEX":1.0,"BANKNIFTY":1.0,
         }
 
@@ -424,15 +455,16 @@ def get_options_oi(symbol):
 def compute_confidence(
     bullish, tech, news_score,
     global_mood_score, sector_pct,
-    fii_score, oi_signal, price
+    fii_score, oi_signal, price,
+    gift_nifty_pct=0
 ):
     """
-    Enhanced confidence scoring using all 9 factors.
+    Enhanced confidence scoring using all 13 factors.
     Each factor contributes points. Final score clamped 40-97.
     """
     score = 50  # base
 
-    # 1. ARIMA direction (base — already determined bullish/bearish)
+    # 1. ARIMA direction
     score += 5 if bullish else -5
 
     # 2. RSI
@@ -461,46 +493,52 @@ def compute_confidence(
     bb_lower = tech.get("bb_lower",0)
     if bb_upper and bb_lower:
         bb_pos = (price - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
-        if bullish and bb_pos < 0.5:   score += 6   # price in lower half — room to go up
-        elif bullish and bb_pos > 0.8: score -= 4   # near upper band — overbought
+        if bullish and bb_pos < 0.5:   score += 6
+        elif bullish and bb_pos > 0.8: score -= 4
         elif not bullish and bb_pos > 0.5: score += 6
         elif not bullish and bb_pos < 0.2: score -= 4
 
     # 6. Volume confirmation
     vol_ratio = tech.get("volume_ratio",1.0)
-    if vol_ratio > 1.5:   score += 8   # strong volume confirmation
+    if vol_ratio > 1.5:   score += 8
     elif vol_ratio > 1.2: score += 4
-    elif vol_ratio < 0.7: score -= 3   # low volume = weak signal
+    elif vol_ratio < 0.7: score -= 3
 
     # 7. Support/Resistance breakout
-    if tech.get("broke_resistance") and bullish:  score += 10  # strong bullish breakout
-    if tech.get("broke_support")    and not bullish: score += 10  # strong bearish breakdown
-    if tech.get("near_resistance")  and bullish:  score -= 5   # hitting resistance = risky
+    if tech.get("broke_resistance") and bullish:     score += 10
+    if tech.get("broke_support")    and not bullish: score += 10
+    if tech.get("near_resistance")  and bullish:     score -= 5
     if tech.get("near_support")     and not bullish: score -= 5
 
     # 8. News sentiment
-    if news_score > 0.3:   score += 8 if bullish else -4
-    elif news_score > 0.1: score += 4 if bullish else -2
+    if news_score > 0.3:    score += 8 if bullish else -4
+    elif news_score > 0.1:  score += 4 if bullish else -2
     elif news_score < -0.3: score -= 4 if bullish else 8
     elif news_score < -0.1: score -= 2 if bullish else 4
 
     # 9. Global market mood
-    if global_mood_score > 0.3:   score += 6 if bullish else -3
-    elif global_mood_score > 0.1: score += 3 if bullish else -1
+    if global_mood_score > 0.3:    score += 6 if bullish else -3
+    elif global_mood_score > 0.1:  score += 3 if bullish else -1
     elif global_mood_score < -0.3: score -= 3 if bullish else 6
     elif global_mood_score < -0.1: score -= 1 if bullish else 3
 
-    # 10. Sector momentum
-    if sector_pct > 2:    score += 6 if bullish else -3
+    # 10. Gift Nifty (equal priority factor)
+    if gift_nifty_pct > 0.5:    score += 6 if bullish else -3
+    elif gift_nifty_pct > 0.1:  score += 3 if bullish else -1
+    elif gift_nifty_pct < -0.5: score -= 3 if bullish else 6
+    elif gift_nifty_pct < -0.1: score -= 1 if bullish else 3
+
+    # 11. Sector momentum
+    if sector_pct > 2:     score += 6 if bullish else -3
     elif sector_pct > 0.5: score += 3 if bullish else -1
     elif sector_pct < -2:  score -= 3 if bullish else 6
-    elif sector_pct < -0.5: score -= 1 if bullish else 3
+    elif sector_pct < -0.5:score -= 1 if bullish else 3
 
-    # 11. FII/DII approximation
-    if fii_score > 0.2:   score += 5 if bullish else -2
+    # 12. FII/DII approximation
+    if fii_score > 0.2:    score += 5 if bullish else -2
     elif fii_score < -0.2: score -= 2 if bullish else 5
 
-    # 12. Options OI (PCR)
+    # 13. Options OI (PCR)
     if oi_signal == "Bullish":   score += 5 if bullish else -2
     elif oi_signal == "Bearish": score -= 2 if bullish else 5
 
@@ -534,6 +572,10 @@ def get_market_status():
         market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
         is_open = is_weekday and market_open <= now_ist <= market_close
         return {"open":is_open,"status":"Open" if is_open else "Closed","time_ist":now_ist.strftime("%I:%M %p"),"error":str(e)}
+
+@app.get("/gift-nifty")
+def gift_nifty():
+    return get_gift_nifty()
 
 @app.get("/global-mood")
 def global_mood():
@@ -581,6 +623,8 @@ def get_stock(symbol:str):
         news_score, news_articles = get_news_sentiment(symbol)
         global_data  = get_global_mood()
         global_score = global_data.get("mood_score", 0)
+        gift_data    = get_gift_nifty()
+        gift_pct     = gift_data.get("pct", 0)
         ticker_info  = ticker.info
         sector       = ticker_info.get("sector", "")
         sector_pct, sector_mood = get_sector_momentum(sector)
@@ -592,7 +636,8 @@ def get_stock(symbol:str):
         confidence = compute_confidence(
             bullish, tech, news_score,
             global_score, sector_pct,
-            fii_score, oi_signal, price
+            fii_score, oi_signal, price,
+            gift_nifty_pct=gift_pct
         )
 
         # Signal reasons for UI
@@ -643,6 +688,9 @@ def get_stock(symbol:str):
                 "news_sentiment": news_score,
                 "global_mood":    global_data.get("overall_mood","Neutral"),
                 "global_avg_pct": global_data.get("avg_pct",0),
+                "gift_nifty_pct": gift_pct,
+                "gift_nifty_signal": gift_data.get("signal","Neutral"),
+                "gift_nifty_gap": gift_data.get("expected_gap",0),
                 "sector_momentum":sector_mood,
                 "sector_pct":     sector_pct,
                 "fii_sentiment":  fii_data.get("fii_sentiment","Neutral"),
@@ -709,12 +757,17 @@ def get_fo(symbol:str):
         news_score,_ = get_news_sentiment(symbol)
         global_data  = get_global_mood()
         global_score = global_data.get("mood_score",0)
+        gift_data    = get_gift_nifty()
+        gift_pct     = gift_data.get("pct",0)
         fii_data     = get_fii_dii_sentiment()
         fii_score    = fii_data.get("fii_score",0)
         oi_data      = get_options_oi(symbol)
         oi_signal    = oi_data.get("oi_signal","Neutral")
 
-        confidence = compute_confidence(bullish,tech,news_score,global_score,0,fii_score,oi_signal,price)
+        confidence = compute_confidence(
+            bullish,tech,news_score,global_score,0,
+            fii_score,oi_signal,price,gift_nifty_pct=gift_pct
+        )
         atm=round(price/100)*100
         step=100
 
@@ -740,6 +793,9 @@ def get_fo(symbol:str):
             "signals":{
                 "news_sentiment":news_score,
                 "global_mood":global_data.get("overall_mood","Neutral"),
+                "gift_nifty_pct":gift_pct,
+                "gift_nifty_signal":gift_data.get("signal","Neutral"),
+                "gift_nifty_gap":gift_data.get("expected_gap",0),
                 "fii_sentiment":fii_data.get("fii_sentiment","Neutral"),
                 "options_pcr":oi_data.get("pcr",1.0),
                 "options_signal":oi_signal,
