@@ -1101,6 +1101,18 @@ def generate_picks():
         "fii_activity":    fii_data.get("fii_sentiment", "Neutral"),
     }
 
+import threading
+
+def generate_picks_background():
+    """Run pick generation in background thread"""
+    try:
+        picks = generate_picks()
+        ttl   = get_daily_picks_ttl()
+        cache_key = get_daily_picks_cache_key()
+        cache_set(cache_key, picks, ttl)
+    except Exception as e:
+        print(f"Background picks error: {e}")
+
 @app.get("/daily-picks")
 def daily_picks():
     """Returns daily picks — generated once after 5 AM IST, same all day"""
@@ -1110,24 +1122,33 @@ def daily_picks():
         cached["from_cache"] = True
         return cached
 
-    # Generate fresh picks
-    picks = generate_picks()
-    ttl   = get_daily_picks_ttl()
-    cache_set(cache_key, picks, ttl)
-    picks["from_cache"] = False
-    return picks
+    # Start generation in background
+    thread = threading.Thread(target=generate_picks_background, daemon=True)
+    thread.start()
+
+    return {
+        "status": "generating",
+        "message": "Picks are being generated in background. Check back in 5-6 minutes.",
+        "total_scanned": 0,
+        "buy_picks": [],
+        "sell_picks": [],
+        "from_cache": False,
+        "generated_at": (datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime("%d %b %Y, %I:%M %p IST"),
+        "next_refresh": (datetime.utcnow()+timedelta(hours=5,minutes=30)).replace(hour=5,minute=0,second=0).strftime("%d %b %Y, 05:00 AM IST"),
+        "market_mood": "Loading...",
+        "gift_nifty":  "Loading...",
+        "fii_activity":"Loading...",
+    }
 
 @app.get("/daily-picks/refresh")
 def refresh_daily_picks():
-    """Force regenerate picks — clears today's cache"""
+    """Force regenerate picks in background"""
     cache_key = get_daily_picks_cache_key()
     if cache_key in _cache:
         del _cache[cache_key]
-    picks = generate_picks()
-    ttl   = get_daily_picks_ttl()
-    cache_set(cache_key, picks, ttl)
-    picks["from_cache"] = False
-    return picks
+    thread = threading.Thread(target=generate_picks_background, daemon=True)
+    thread.start()
+    return {"status":"generating","message":"Picks regeneration started in background. Check /daily-picks in 5-6 minutes."}
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT",8080))
