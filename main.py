@@ -24,9 +24,7 @@ HEADERS = {
     "Cache-Control": "no-cache",
 }
 
-# 25+ news sources covering all market segments
 NEWS_FEEDS = [
-    # Yahoo Finance - Multiple feeds
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^NSEI&region=IN&lang=en-US",     "source": "Yahoo Finance", "tag": "NIFTY"},
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^BSESN&region=IN&lang=en-US",    "source": "Yahoo Finance", "tag": "SENSEX"},
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=RELIANCE.NS&region=IN&lang=en-US","source": "Yahoo Finance", "tag": "RELIANCE"},
@@ -34,35 +32,27 @@ NEWS_FEEDS = [
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=HDFCBANK.NS&region=IN&lang=en-US","source": "Yahoo Finance", "tag": "HDFCBANK"},
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=INFY.NS&region=IN&lang=en-US",   "source": "Yahoo Finance", "tag": "INFY"},
     {"url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=SBIN.NS&region=IN&lang=en-US",   "source": "Yahoo Finance", "tag": "SBIN"},
-    # Economic Times
     {"url": "https://economictimes.indiatimes.com/markets/stocks/rss.cms",         "source": "ET Markets",    "tag": "STOCKS"},
     {"url": "https://economictimes.indiatimes.com/markets/rss.cms",                "source": "ET Markets",    "tag": "MARKET"},
     {"url": "https://economictimes.indiatimes.com/markets/mutual-funds/rss.cms",   "source": "ET Markets",    "tag": "MF"},
     {"url": "https://economictimes.indiatimes.com/markets/commodities/rss.cms",    "source": "ET Markets",    "tag": "COMMODITIES"},
     {"url": "https://economictimes.indiatimes.com/markets/forex/rss.cms",          "source": "ET Markets",    "tag": "FOREX"},
     {"url": "https://economictimes.indiatimes.com/news/economy/rss.cms",           "source": "ET Economy",    "tag": "ECONOMY"},
-    # Live Mint
     {"url": "https://www.livemint.com/rss/markets",                                "source": "Live Mint",     "tag": "MARKET"},
     {"url": "https://www.livemint.com/rss/companies",                              "source": "Live Mint",     "tag": "STOCKS"},
     {"url": "https://www.livemint.com/rss/money",                                  "source": "Live Mint",     "tag": "ECONOMY"},
     {"url": "https://www.livemint.com/rss/industry",                               "source": "Live Mint",     "tag": "SECTOR"},
-    # Business Standard
     {"url": "https://www.business-standard.com/rss/markets-106.rss",              "source": "Business Std",  "tag": "MARKET"},
     {"url": "https://www.business-standard.com/rss/finance-109.rss",              "source": "Business Std",  "tag": "FINANCE"},
     {"url": "https://www.business-standard.com/rss/economy-policy-102.rss",       "source": "Business Std",  "tag": "ECONOMY"},
     {"url": "https://www.business-standard.com/rss/companies-101.rss",            "source": "Business Std",  "tag": "STOCKS"},
-    # The Hindu Business
     {"url": "https://www.thehindu.com/business/markets/?service=rss",             "source": "Hindu Business", "tag": "MARKET"},
     {"url": "https://www.thehindu.com/business/?service=rss",                     "source": "Hindu Business", "tag": "ECONOMY"},
-    # Reuters
     {"url": "https://feeds.reuters.com/reuters/INbusinessNews",                    "source": "Reuters India",  "tag": "GLOBAL"},
     {"url": "https://feeds.reuters.com/reuters/businessNews",                      "source": "Reuters",        "tag": "GLOBAL"},
-    # Financial Express
     {"url": "https://www.financialexpress.com/market/feed/",                       "source": "Financial Express","tag": "MARKET"},
-    # CNBC TV18
     {"url": "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/market.xml",         "source": "CNBC TV18",      "tag": "MARKET"},
     {"url": "https://www.cnbctv18.com/commonfeeds/v1/eng/rss/economy.xml",        "source": "CNBC TV18",      "tag": "ECONOMY"},
-    # Moneycontrol
     {"url": "https://www.moneycontrol.com/rss/MCtopnews.xml",                     "source": "Moneycontrol",   "tag": "MARKET"},
     {"url": "https://www.moneycontrol.com/rss/marketreports.xml",                 "source": "Moneycontrol",   "tag": "MARKET"},
     {"url": "https://www.moneycontrol.com/rss/stocksmarket.xml",                  "source": "Moneycontrol",   "tag": "STOCKS"},
@@ -206,6 +196,51 @@ def fetch_feed(feed_info, symbol=""):
 def root():
     return {"status":"MarketCast API is running!"}
 
+@app.get("/status")
+def get_market_status():
+    try:
+        ticker = yf.Ticker("^NSEI")
+        hist   = ticker.history(period="1d", interval="1m")
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday = now_ist.weekday() < 5
+        market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        is_open = is_weekday and market_open <= now_ist <= market_close
+
+        if hist.empty:
+            return {
+                "open":     is_open,
+                "status":   "Open" if is_open else "Closed",
+                "time_ist": now_ist.strftime("%I:%M %p"),
+                "price":    0, "change": 0, "pct": 0,
+            }
+
+        last_price = safe_float(hist["Close"].iloc[-1])
+        prev_price = safe_float(hist["Close"].iloc[0])
+        change     = round(last_price - prev_price, 2)
+        pct        = round((change / prev_price) * 100, 2) if prev_price else 0
+
+        return {
+            "open":     is_open,
+            "status":   "Open" if is_open else "Closed",
+            "time_ist": now_ist.strftime("%I:%M %p"),
+            "price":    last_price,
+            "change":   change,
+            "pct":      pct,
+        }
+    except Exception as e:
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday = now_ist.weekday() < 5
+        market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        is_open = is_weekday and market_open <= now_ist <= market_close
+        return {
+            "open":     is_open,
+            "status":   "Open" if is_open else "Closed",
+            "time_ist": now_ist.strftime("%I:%M %p"),
+            "error":    str(e),
+        }
+
 @app.get("/stock/{symbol}")
 def get_stock(symbol:str):
     try:
@@ -276,7 +311,6 @@ def get_news(symbol:str="", tag:str="", limit:int=50):
     seen   = set()
     articles = []
     for feed_info in NEWS_FEEDS:
-        # Filter by tag if provided
         if tag and feed_info.get("tag","").upper() != tag.upper():
             continue
         fetched = fetch_feed(feed_info, symbol)
@@ -286,7 +320,6 @@ def get_news(symbol:str="", tag:str="", limit:int=50):
                 articles.append(a)
         if len(articles) >= limit:
             break
-    # Sort: most recent sentiment first
     articles = sorted(articles, key=lambda x: abs(x["score"]), reverse=True)
     return {
         "news":    articles[:limit],
