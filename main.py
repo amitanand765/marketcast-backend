@@ -231,23 +231,81 @@ def get_sentiment(text):
     if total==0: return 0.0
     return round((p-n)/total,2)
 
-def fetch_feed(feed_info, symbol=""):
+def parse_article_date(date_str):
+    """Parse RSS date string to datetime"""
+    if not date_str:
+        return None
+    formats = [
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S GMT",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%d %b %Y %H:%M:%S %z",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str.strip(), fmt)
+        except:
+            continue
+    return None
+
+def is_recent(date_str, hours=48):
+    """Check if article is within last N hours"""
+    try:
+        pub_date = parse_article_date(date_str)
+        if not pub_date:
+            return True  # If can't parse date, include it
+        # Make timezone aware
+        now = datetime.utcnow().replace(tzinfo=pub_date.tzinfo) if pub_date.tzinfo else datetime.utcnow()
+        if pub_date.tzinfo:
+            now = datetime.now(pub_date.tzinfo)
+        diff = now - pub_date
+        return diff.total_seconds() < hours * 3600
+    except:
+        return True  # If error, include article
+
+def format_time_ago(date_str):
+    """Convert date to human readable 'X hours ago'"""
+    try:
+        pub_date = parse_article_date(date_str)
+        if not pub_date:
+            return date_str
+        now = datetime.now(pub_date.tzinfo) if pub_date.tzinfo else datetime.utcnow()
+        diff = now - pub_date
+        seconds = diff.total_seconds()
+        if seconds < 3600:
+            return f"{int(seconds/60)} min ago"
+        elif seconds < 86400:
+            return f"{int(seconds/3600)} hr ago"
+        else:
+            return f"{int(seconds/86400)} days ago"
+    except:
+        return date_str
+
+def fetch_feed(feed_info, symbol="", max_age_hours=48):
     articles=[]
     try:
         resp = requests.get(feed_info["url"], headers=HEADERS, timeout=6)
         feed = feedparser.parse(resp.content)
         if not feed.entries:
             feed = feedparser.parse(feed_info["url"])
-        for entry in feed.entries[:10]:
-            title   = entry.get("title","")
-            summary = entry.get("summary",entry.get("description",""))
+        for entry in feed.entries[:15]:
+            title    = entry.get("title","")
+            summary  = entry.get("summary",entry.get("description",""))
+            pub_date = entry.get("published","")
             if not title: continue
+            if not is_recent(pub_date, hours=max_age_hours):
+                continue
             if symbol and symbol.upper() not in title.upper() and symbol.upper() not in summary.upper():
                 continue
             score = get_sentiment(title+" "+summary)
             articles.append({
-                "title":title,"source":feed_info["source"],"tag":feed_info.get("tag","MARKET"),
-                "link":entry.get("link",""),"time":entry.get("published",""),
+                "title":title,
+                "source":feed_info["source"],
+                "tag":feed_info.get("tag","MARKET"),
+                "link":entry.get("link",""),
+                "time":format_time_ago(pub_date),
+                "raw_time":pub_date,
                 "sentiment":"positive" if score>0.1 else "negative" if score<-0.1 else "neutral",
                 "score":score,
             })
