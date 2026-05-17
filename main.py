@@ -172,15 +172,34 @@ def forecast_dates(days):
             dates.append(d.strftime("%d %b"))
     return dates
 
-def intraday_forecast(price, pct):
-    times=["9:15","9:30","9:45","10:00","10:30","11:00","11:30",
-           "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30"]
-    p=price; step=(pct/100)/len(times)
-    np.random.seed(int(abs(price))%9999); result=[]
-    for i,t in enumerate(times):
-        p += p*step + np.random.normal(0,price*0.001)
-        conf=price*(0.003+i*0.0005)
-        result.append({"time":t,"predicted":round(p,2),"upper":round(p+conf,2),"lower":round(p-conf,2)})
+def intraday_forecast(price, arima_next_day):
+    """Generate intraday forecast based on ARIMA next day prediction"""
+    times = ["9:15","9:30","9:45","10:00","10:30","11:00","11:30",
+             "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30"]
+    
+    # Total move from current price to ARIMA predicted close
+    total_move = arima_next_day - price
+    steps = len(times)
+    
+    np.random.seed(int(abs(price)) % 9999)
+    result = []
+    p = price
+    
+    for i, t in enumerate(times):
+        # Progress toward ARIMA target (non-linear — slow start, faster end)
+        progress = (i + 1) / steps
+        # Add realistic intraday noise
+        noise = np.random.normal(0, price * 0.0008)
+        # Move toward ARIMA target
+        p = price + (total_move * progress) + noise
+        # Confidence band widens as day progresses
+        conf = price * (0.002 + i * 0.0004)
+        result.append({
+            "time": t,
+            "predicted": round(p, 2),
+            "upper": round(p + conf, 2),
+            "lower": round(p - conf, 2),
+        })
     return result
 
 def get_technicals(df):
@@ -667,7 +686,7 @@ def get_stock(symbol:str):
             "week52high":safe_float(high.max()),"week52low":safe_float(low.min()),
             "sector":sector,"technicals":tech,
             "forecast":{
-                "intraday":intraday_forecast(price,pct),
+                "intraday":intraday_forecast(price, fc30["predicted"][0]),
                 "day7":{"dates":dates[:7],"data":fc7},
                 "day30":{"dates":dates,"data":fc30},
             },
@@ -794,7 +813,7 @@ def get_fo(symbol:str):
             "bullish":bullish,"confidence":confidence,
             "expected_move":round(fc30["predicted"][0]-price,2),"atm":atm,
             "forecast":{
-                "intraday":intraday_forecast(price,pct),
+                "intraday":intraday_forecast(price, fc30["predicted"][0]),
                 "day7":{"dates":dates[:7],"data":fc7},
                 "day30":{"dates":dates,"data":fc30},
             },
