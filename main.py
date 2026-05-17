@@ -826,38 +826,34 @@ def get_fo(symbol:str):
 # ── DAILY PICKS ───────────────────────────────────────────────────────────────
 
 PICK_STOCKS = [
-    # IT
-    {"name":"TCS","symbol":"TCS","sector":"IT"},
-    {"name":"Infosys","symbol":"INFY","sector":"IT"},
-    {"name":"Wipro","symbol":"WIPRO","sector":"IT"},
-    {"name":"HCL Technologies","symbol":"HCLTECH","sector":"IT"},
-    {"name":"Tech Mahindra","symbol":"TECHM","sector":"IT"},
-    {"name":"LTIMindtree","symbol":"LTIM","sector":"IT"},
-    {"name":"Mphasis","symbol":"MPHASIS","sector":"IT"},
-    {"name":"Coforge","symbol":"COFORGE","sector":"IT"},
-    {"name":"Persistent Systems","symbol":"PERSISTENT","sector":"IT"},
-    {"name":"KPIT Technologies","symbol":"KPITTECH","sector":"IT"},
-    {"name":"Tata Elxsi","symbol":"TATAELXSI","sector":"IT"},
-    {"name":"Oracle Financial","symbol":"OFSS","sector":"IT"},
-    {"name":"Happiest Minds","symbol":"HAPPSTMNDS","sector":"IT"},
-    {"name":"Birlasoft","symbol":"BSOFT","sector":"IT"},
     # Banking
     {"name":"HDFC Bank","symbol":"HDFCBANK","sector":"Banking"},
     {"name":"ICICI Bank","symbol":"ICICIBANK","sector":"Banking"},
     {"name":"SBI","symbol":"SBIN","sector":"Banking"},
-    {"name":"Kotak Mahindra Bank","symbol":"KOTAKBANK","sector":"Banking"},
+    {"name":"Kotak Bank","symbol":"KOTAKBANK","sector":"Banking"},
     {"name":"Axis Bank","symbol":"AXISBANK","sector":"Banking"},
     {"name":"IndusInd Bank","symbol":"INDUSINDBK","sector":"Banking"},
     {"name":"Bank of Baroda","symbol":"BANKBARODA","sector":"Banking"},
-    {"name":"Punjab National Bank","symbol":"PNB","sector":"Banking"},
+    {"name":"PNB","symbol":"PNB","sector":"Banking"},
     {"name":"Canara Bank","symbol":"CANBK","sector":"Banking"},
     {"name":"Federal Bank","symbol":"FEDERALBNK","sector":"Banking"},
     {"name":"IDFC First Bank","symbol":"IDFCFIRSTB","sector":"Banking"},
     {"name":"Yes Bank","symbol":"YESBANK","sector":"Banking"},
     {"name":"Bandhan Bank","symbol":"BANDHANBNK","sector":"Banking"},
-    {"name":"AU Small Finance Bank","symbol":"AUBANK","sector":"Banking"},
+    {"name":"AU Small Finance","symbol":"AUBANK","sector":"Banking"},
+    # IT
+    {"name":"TCS","symbol":"TCS","sector":"IT"},
+    {"name":"Infosys","symbol":"INFY","sector":"IT"},
+    {"name":"Wipro","symbol":"WIPRO","sector":"IT"},
+    {"name":"HCL Tech","symbol":"HCLTECH","sector":"IT"},
+    {"name":"Tech Mahindra","symbol":"TECHM","sector":"IT"},
+    {"name":"LTIMindtree","symbol":"LTIM","sector":"IT"},
+    {"name":"Mphasis","symbol":"MPHASIS","sector":"IT"},
+    {"name":"Coforge","symbol":"COFORGE","sector":"IT"},
+    {"name":"Persistent","symbol":"PERSISTENT","sector":"IT"},
+    {"name":"Tata Elxsi","symbol":"TATAELXSI","sector":"IT"},
     # Energy
-    {"name":"Reliance Industries","symbol":"RELIANCE","sector":"Energy"},
+    {"name":"Reliance","symbol":"RELIANCE","sector":"Energy"},
     {"name":"ONGC","symbol":"ONGC","sector":"Energy"},
     {"name":"BPCL","symbol":"BPCL","sector":"Energy"},
     {"name":"IOC","symbol":"IOC","sector":"Energy"},
@@ -865,23 +861,21 @@ PICK_STOCKS = [
     {"name":"Oil India","symbol":"OIL","sector":"Energy"},
     {"name":"Petronet LNG","symbol":"PETRONET","sector":"Energy"},
     {"name":"IGL","symbol":"IGL","sector":"Energy"},
-    {"name":"Gujarat Gas","symbol":"GUJGASLTD","sector":"Energy"},
-    {"name":"GAIL India","symbol":"GAIL","sector":"Energy"},
+    {"name":"GAIL","symbol":"GAIL","sector":"Energy"},
     # Telecom
     {"name":"Bharti Airtel","symbol":"BHARTIARTL","sector":"Telecom"},
-    {"name":"Tata Communications","symbol":"TATACOMM","sector":"Telecom"},
+    {"name":"Tata Comms","symbol":"TATACOMM","sector":"Telecom"},
     # Auto
     {"name":"Maruti Suzuki","symbol":"MARUTI","sector":"Auto"},
     {"name":"Tata Motors","symbol":"TATAMOTORS","sector":"Auto"},
-    {"name":"Mahindra & Mahindra","symbol":"M&M","sector":"Auto"},
+    {"name":"M&M","symbol":"M&M","sector":"Auto"},
     {"name":"Hero MotoCorp","symbol":"HEROMOTOCO","sector":"Auto"},
     {"name":"Bajaj Auto","symbol":"BAJAJ-AUTO","sector":"Auto"},
     {"name":"Eicher Motors","symbol":"EICHERMOT","sector":"Auto"},
     {"name":"TVS Motor","symbol":"TVSMOTOR","sector":"Auto"},
     {"name":"Ashok Leyland","symbol":"ASHOKLEY","sector":"Auto"},
     {"name":"MRF","symbol":"MRF","sector":"Auto"},
-    {"name":"Apollo Tyres","symbol":"APOLLOTYRE","sector":"Auto"},
-    {"name":"Motherson Wiring","symbol":"MOTHERSON","sector":"Auto"},
+    {"name":"Motherson","symbol":"MOTHERSON","sector":"Auto"},
     # FMCG
     {"name":"HUL","symbol":"HINDUNILVR","sector":"FMCG"},
     {"name":"ITC","symbol":"ITC","sector":"FMCG"},
@@ -891,7 +885,6 @@ PICK_STOCKS = [
     {"name":"Dabur India","symbol":"DABUR","sector":"FMCG"},
     {"name":"Godrej Consumer","symbol":"GODREJCP","sector":"FMCG"},
     {"name":"Marico","symbol":"MARICO","sector":"FMCG"},
-    {"name":"Colgate Palmolive","symbol":"COLPAL","sector":"FMCG"},
     {"name":"Tata Consumer","symbol":"TATACONSUM","sector":"FMCG"},
     {"name":"Varun Beverages","symbol":"VBL","sector":"FMCG"},
     # Pharma
@@ -899,22 +892,22 @@ PICK_STOCKS = [
     {"name":"Dr Reddys","symbol":"DRREDDY","sector":"Pharma"},
     {"name":"Cipla","symbol":"CIPLA","sector":"Pharma"},
     {"name":"Divis Labs","symbol":"DIVISLAB","sector":"Pharma"},
-    {"name":"Aurobindo Pharma","symbol":"AUROPHARMA","sector":"Pharma"},
+    {"name":"Aurobindo","symbol":"AUROPHARMA","sector":"Pharma"},
     {"name":"Torrent Pharma","symbol":"TORNTPHARM","sector":"Pharma"},
     {"name":"Lupin","symbol":"LUPIN","sector":"Pharma"},
     {"name":"Biocon","symbol":"BIOCON","sector":"Pharma"},
     {"name":"Alkem Labs","symbol":"ALKEM","sector":"Pharma"},
-    {"name":"Glenmark Pharma","symbol":"GLENMARK","sector":"Pharma"},
+    {"name":"Glenmark","symbol":"GLENMARK","sector":"Pharma"},
     {"name":"IPCA Labs","symbol":"IPCALAB","sector":"Pharma"},
     # NBFC & Insurance
     {"name":"Bajaj Finance","symbol":"BAJFINANCE","sector":"NBFC"},
     {"name":"Bajaj Finserv","symbol":"BAJAJFINSV","sector":"NBFC"},
-    {"name":"Cholamandalam Finance","symbol":"CHOLAFIN","sector":"NBFC"},
+    {"name":"Chola Finance","symbol":"CHOLAFIN","sector":"NBFC"},
     {"name":"Muthoot Finance","symbol":"MUTHOOTFIN","sector":"NBFC"},
     {"name":"SBI Cards","symbol":"SBICARD","sector":"NBFC"},
     {"name":"HDFC Life","symbol":"HDFCLIFE","sector":"Insurance"},
     {"name":"SBI Life","symbol":"SBILIFE","sector":"Insurance"},
-    {"name":"ICICI Prudential","symbol":"ICICIPRULI","sector":"Insurance"},
+    {"name":"ICICI Pru Life","symbol":"ICICIPRULI","sector":"Insurance"},
     {"name":"LIC","symbol":"LICI","sector":"Insurance"},
     {"name":"ICICI Lombard","symbol":"ICICIGI","sector":"Insurance"},
     {"name":"Shriram Finance","symbol":"SHRIRAMFIN","sector":"NBFC"},
@@ -927,14 +920,12 @@ PICK_STOCKS = [
     {"name":"Adani Enterprises","symbol":"ADANIENT","sector":"Infra"},
     {"name":"Adani Green","symbol":"ADANIGREEN","sector":"Infra"},
     {"name":"Adani Power","symbol":"ADANIPOWER","sector":"Infra"},
-    {"name":"GMR Airports","symbol":"GMRINFRA","sector":"Infra"},
     {"name":"RVNL","symbol":"RVNL","sector":"Infra"},
     # Utilities
     {"name":"Power Grid","symbol":"POWERGRID","sector":"Utilities"},
     {"name":"NTPC","symbol":"NTPC","sector":"Utilities"},
     {"name":"Tata Power","symbol":"TATAPOWER","sector":"Utilities"},
     {"name":"JSW Energy","symbol":"JSWENERGY","sector":"Utilities"},
-    {"name":"Torrent Power","symbol":"TORNTPOWER","sector":"Utilities"},
     # Metals
     {"name":"Tata Steel","symbol":"TATASTEEL","sector":"Metals"},
     {"name":"JSW Steel","symbol":"JSWSTEEL","sector":"Metals"},
@@ -947,8 +938,7 @@ PICK_STOCKS = [
     {"name":"Titan","symbol":"TITAN","sector":"Consumer"},
     {"name":"Avenue Supermarts","symbol":"DMART","sector":"Retail"},
     {"name":"Trent","symbol":"TRENT","sector":"Retail"},
-    {"name":"Jubilant Foodworks","symbol":"JUBLFOOD","sector":"Consumer"},
-    {"name":"Bata India","symbol":"BATAINDIA","sector":"Consumer"},
+    {"name":"Jubilant Foods","symbol":"JUBLFOOD","sector":"Consumer"},
     {"name":"Kalyan Jewellers","symbol":"KALYANKJIL","sector":"Consumer"},
     # Healthcare
     {"name":"Apollo Hospitals","symbol":"APOLLOHOSP","sector":"Healthcare"},
@@ -967,14 +957,14 @@ PICK_STOCKS = [
     {"name":"Mazagon Dock","symbol":"MAZDOCK","sector":"Defence"},
     {"name":"Garden Reach","symbol":"GRSE","sector":"Defence"},
     {"name":"Cochin Shipyard","symbol":"COCHINSHIP","sector":"Defence"},
-    # Tech/New Age
+    # Tech
     {"name":"Zomato","symbol":"ZOMATO","sector":"Tech"},
     {"name":"Paytm","symbol":"PAYTM","sector":"Tech"},
     {"name":"Nykaa","symbol":"NYKAA","sector":"Tech"},
     {"name":"PB Fintech","symbol":"POLICYBZR","sector":"Tech"},
     {"name":"IRCTC","symbol":"IRCTC","sector":"Tech"},
     # Chemicals
-    {"name":"Pidilite Industries","symbol":"PIDILITIND","sector":"Chemicals"},
+    {"name":"Pidilite","symbol":"PIDILITIND","sector":"Chemicals"},
     {"name":"SRF","symbol":"SRF","sector":"Chemicals"},
     {"name":"Deepak Nitrite","symbol":"DEEPAKNTR","sector":"Chemicals"},
     {"name":"Tata Chemicals","symbol":"TATACHEM","sector":"Chemicals"},
@@ -983,11 +973,14 @@ PICK_STOCKS = [
     {"name":"Godrej Properties","symbol":"GODREJPROP","sector":"Real Estate"},
     {"name":"Prestige Estates","symbol":"PRESTIGE","sector":"Real Estate"},
     {"name":"Oberoi Realty","symbol":"OBEROIRLTY","sector":"Real Estate"},
-    # Diversified
-    {"name":"Grasim Industries","symbol":"GRASIM","sector":"Diversified"},
+    # Agri & Diversified
+    {"name":"Grasim","symbol":"GRASIM","sector":"Diversified"},
     {"name":"UPL","symbol":"UPL","sector":"Agri"},
     {"name":"PI Industries","symbol":"PIIND","sector":"Agri"},
-    {"name":"Coromandel Intl","symbol":"COROMANDEL","sector":"Agri"},
+    {"name":"Coromandel","symbol":"COROMANDEL","sector":"Agri"},
+    {"name":"Bharti Airtel","symbol":"BHARTIARTL","sector":"Telecom"},
+    {"name":"Asian Paints","symbol":"ASIANPAINT","sector":"FMCG"},
+    {"name":"Colgate","symbol":"COLPAL","sector":"FMCG"},
 ]
 
 def get_daily_picks_cache_key():
@@ -1021,9 +1014,6 @@ def generate_picks():
 
     for i, stock in enumerate(PICK_STOCKS):
         try:
-            # Small delay every 5 stocks to avoid rate limiting
-            if i > 0 and i % 5 == 0:
-                time.sleep(2)
             ticker = yf.Ticker(nse(stock["symbol"]))
             hist   = ticker.history(period="6mo")
             if hist.empty: continue
@@ -1103,46 +1093,60 @@ def generate_picks():
 
 import threading
 
-def generate_picks_background():
-    """Run pick generation in background thread"""
-    try:
-        picks = generate_picks()
-        ttl   = get_daily_picks_ttl()
-        cache_key = get_daily_picks_cache_key()
-        cache_set(cache_key, picks, ttl)
-    except Exception as e:
-        print(f"Background picks error: {e}")
+import threading
+import time as time_module
+
+# ── STARTUP SCHEDULER ─────────────────────────────────────────────────────────
+def scheduler_loop():
+    """Runs in background — generates picks once per day at 5 AM IST"""
+    while True:
+        try:
+            now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            cache_key = get_daily_picks_cache_key()
+            cached = cache_get(cache_key)
+
+            if not cached:
+                print(f"[{now_ist.strftime('%H:%M')}] Generating picks for {now_ist.strftime('%d %b')}...")
+                picks = generate_picks()
+                ttl   = get_daily_picks_ttl()
+                cache_set(cache_key, picks, ttl)
+                print(f"Picks generated: {picks.get('total_scanned',0)} stocks scanned")
+
+            # Sleep 30 minutes then check again
+            time_module.sleep(1800)
+        except Exception as e:
+            print(f"Scheduler error: {e}")
+            time_module.sleep(300)  # retry in 5 min on error
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background scheduler on app startup"""
+    thread = threading.Thread(target=scheduler_loop, daemon=True)
+    thread.start()
+    print("Background scheduler started")
 
 @app.get("/daily-picks")
 def daily_picks():
-    """Returns daily picks — generated once after 5 AM IST, same all day"""
     cache_key = get_daily_picks_cache_key()
     cached    = cache_get(cache_key)
     if cached:
         cached["from_cache"] = True
         return cached
-
-    # Start generation in background
+    # Start background generation if not already running
     thread = threading.Thread(target=generate_picks_background, daemon=True)
     thread.start()
-
     return {
-        "status": "generating",
-        "message": "Picks are being generated in background. Check back in 5-6 minutes.",
-        "total_scanned": 0,
-        "buy_picks": [],
-        "sell_picks": [],
-        "from_cache": False,
-        "generated_at": (datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime("%d %b %Y, %I:%M %p IST"),
-        "next_refresh": (datetime.utcnow()+timedelta(hours=5,minutes=30)).replace(hour=5,minute=0,second=0).strftime("%d %b %Y, 05:00 AM IST"),
-        "market_mood": "Loading...",
-        "gift_nifty":  "Loading...",
-        "fii_activity":"Loading...",
+        "status":"generating",
+        "message":"Picks are being generated. Check back in 5-6 minutes.",
+        "total_scanned":0,"buy_picks":[],"sell_picks":[],
+        "from_cache":False,
+        "generated_at":(datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime("%d %b %Y, %I:%M %p IST"),
+        "next_refresh":"Tomorrow 05:00 AM IST",
+        "market_mood":"Loading...","gift_nifty":"Loading...","fii_activity":"Loading...",
     }
 
 @app.get("/daily-picks/refresh")
 def refresh_daily_picks():
-    """Force regenerate picks in background"""
     cache_key = get_daily_picks_cache_key()
     if cache_key in _cache:
         del _cache[cache_key]
