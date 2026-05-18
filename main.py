@@ -173,32 +173,58 @@ def forecast_dates(days):
     return dates
 
 def intraday_forecast(price, arima_next_day):
-    """Generate intraday forecast based on ARIMA next day prediction"""
-    times = ["9:15","9:30","9:45","10:00","10:30","11:00","11:30",
-             "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30"]
-    
+    """
+    Generate intraday forecast based on ARIMA prediction.
+    - Market open (9:15-3:30 IST): shows remaining hours today
+    - Market closed: shows next trading day full forecast
+    """
+    all_times = ["9:15","9:30","9:45","10:00","10:30","11:00","11:30",
+                 "12:00","12:30","13:00","13:30","14:00","14:30","15:00","15:30"]
+
+    # Get current IST time
+    now_ist   = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    is_weekday = now_ist.weekday() < 5
+    market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+    market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+    market_is_open = is_weekday and market_open <= now_ist <= market_close
+
+    if market_is_open:
+        # Show only remaining hours today
+        current_time = now_ist.strftime("%H:%M")
+        times = []
+        for t in all_times:
+            h, m = map(int, t.split(":"))
+            slot_minutes = h * 60 + m
+            now_minutes  = now_ist.hour * 60 + now_ist.minute
+            if slot_minutes >= now_minutes:
+                times.append(t)
+        if not times:
+            times = ["15:30"]
+        label = "today"
+    else:
+        # Show full next trading day
+        times = all_times
+        label = "tomorrow"
+
     # Total move from current price to ARIMA predicted close
     total_move = arima_next_day - price
     steps = len(times)
-    
+
     np.random.seed(int(abs(price)) % 9999)
     result = []
     p = price
-    
+
     for i, t in enumerate(times):
-        # Progress toward ARIMA target (non-linear — slow start, faster end)
         progress = (i + 1) / steps
-        # Add realistic intraday noise
-        noise = np.random.normal(0, price * 0.0008)
-        # Move toward ARIMA target
-        p = price + (total_move * progress) + noise
-        # Confidence band widens as day progresses
-        conf = price * (0.002 + i * 0.0004)
+        noise    = np.random.normal(0, price * 0.0008)
+        p        = price + (total_move * progress) + noise
+        conf     = price * (0.002 + i * 0.0004)
         result.append({
-            "time": t,
+            "time":      t,
             "predicted": round(p, 2),
-            "upper": round(p + conf, 2),
-            "lower": round(p - conf, 2),
+            "upper":     round(p + conf, 2),
+            "lower":     round(p - conf, 2),
+            "label":     label,
         })
     return result
 
