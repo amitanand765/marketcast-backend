@@ -1141,34 +1141,34 @@ import threading
 import threading
 import time as time_module
 
-# ── STARTUP SCHEDULER ─────────────────────────────────────────────────────────
+def generate_picks_background():
+    """Run pick generation in background thread"""
+    try:
+        picks = generate_picks()
+        ttl   = get_daily_picks_ttl()
+        cache_key = get_daily_picks_cache_key()
+        cache_set(cache_key, picks, ttl)
+        print(f"Picks generated: {picks.get('total_scanned',0)} stocks")
+    except Exception as e:
+        print(f"Background picks error: {e}")
+
 def scheduler_loop():
-    """Runs in background — generates picks once per day at 5 AM IST"""
+    """Runs in background — generates picks once per day"""
+    # Wait 60 seconds after startup before first generation
+    time_module.sleep(60)
     while True:
         try:
-            now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
             cache_key = get_daily_picks_cache_key()
             cached = cache_get(cache_key)
-
             if not cached:
-                print(f"[{now_ist.strftime('%H:%M')}] Generating picks for {now_ist.strftime('%d %b')}...")
-                picks = generate_picks()
-                ttl   = get_daily_picks_ttl()
-                cache_set(cache_key, picks, ttl)
-                print(f"Picks generated: {picks.get('total_scanned',0)} stocks scanned")
-
-            # Sleep 30 minutes then check again
+                now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                print(f"Scheduler: generating picks at {now_ist.strftime('%H:%M IST')}")
+                generate_picks_background()
+            # Check every 30 minutes
             time_module.sleep(1800)
         except Exception as e:
             print(f"Scheduler error: {e}")
-            time_module.sleep(300)  # retry in 5 min on error
-
-@app.on_event("startup")
-async def startup_event():
-    """Start background scheduler on app startup"""
-    thread = threading.Thread(target=scheduler_loop, daemon=True)
-    thread.start()
-    print("Background scheduler started")
+            time_module.sleep(300)
 
 @app.get("/daily-picks")
 def daily_picks():
@@ -1177,7 +1177,7 @@ def daily_picks():
     if cached:
         cached["from_cache"] = True
         return cached
-    # Start background generation if not already running
+    # Start background generation
     thread = threading.Thread(target=generate_picks_background, daemon=True)
     thread.start()
     return {
@@ -1197,7 +1197,14 @@ def refresh_daily_picks():
         del _cache[cache_key]
     thread = threading.Thread(target=generate_picks_background, daemon=True)
     thread.start()
-    return {"status":"generating","message":"Picks regeneration started in background. Check /daily-picks in 5-6 minutes."}
+    return {"status":"generating","message":"Picks regeneration started. Check back in 5-6 minutes."}
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background scheduler on app startup"""
+    thread = threading.Thread(target=scheduler_loop, daemon=True)
+    thread.start()
+    print("Scheduler started")
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT",8080))
