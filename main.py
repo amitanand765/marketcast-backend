@@ -1199,9 +1199,182 @@ def refresh_daily_picks():
     thread.start()
     return {"status":"generating","message":"Picks regeneration started. Check back in 5-6 minutes."}
 
+@app.get("/actual-price/{symbol}")
+def get_actual_price(symbol: str):
+    """Get today's actual OHLC data for a stock — used for forecast accuracy tracking"""
+    try:
+        cached = cache_get(f"actual_{symbol}")
+        if cached: return cached
+
+        ticker = yf.Ticker(nse(symbol))
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday = now_ist.weekday() < 5
+        market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        market_is_open = is_weekday and market_open <= now_ist <= market_close
+
+        if market_is_open:
+            # During market — get intraday 1min data
+            hist = ticker.history(period="1d", interval="5m")
+            ttl  = 300  # cache 5 min during market
+        else:
+            # After market — get today's daily OHLC
+            hist = ticker.history(period="2d")
+            ttl  = 3600  # cache 1 hour after market
+
+        if hist.empty:
+            return {"error": "No data"}
+
+        close  = hist["Close"].dropna()
+        high   = hist["High"].dropna()
+        low    = hist["Low"].dropna()
+        volume = hist["Volume"].dropna()
+
+        # Build actual intraday points
+        actual_points = []
+        if market_is_open:
+            for idx, row in hist.iterrows():
+                t = (idx + timedelta(hours=5, minutes=30)).strftime("%H:%M") if idx.tzinfo else idx.strftime("%H:%M")
+                actual_points.append({
+                    "time":  t,
+                    "price": safe_float(row["Close"]),
+                })
+
+        result = {
+            "symbol":        symbol.upper(),
+            "open":          safe_float(hist["Open"].iloc[0]),
+            "high":          safe_float(high.max()),
+            "low":           safe_float(low.min()),
+            "close":         safe_float(close.iloc[-1]),
+            "volume":        safe_int(volume.sum()),
+            "market_open":   market_is_open,
+            "actual_points": actual_points,
+            "time_ist":      now_ist.strftime("%H:%M"),
+        }
+        cache_set(f"actual_{symbol}", result, ttl)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/pick-results")
+def get_pick_results():
+    """
+    Check today's picks against actual prices after market close.
+    Returns hit/miss/in-progress status for each pick.
+    """
+    try:
+        cached = cache_get("pick_results")
+        if cached: return cached
+
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday = now_ist.weekday() < 5
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        after_close  = now_ist > market_close and is_weekday
+
+        # Get today's picks
+        cache_key = get_daily_picks_cache_key()
+        picks_data = cache_get(cache_key)
+        if not picks_data:
+            return {"error": "No picks available for today"}
+
+        all_picks = picks_data.get("buy_picks", []) + picks_data.get("sell_picks", [])
+        results = []
+
+        for pick in all_picks:
+            try:
+                symbol  = pick["symbol"]
+                entry   = pick["entry"]
+                target  = pick["target"]
+                sl      = pick["stop_loss"]
+                bullish = pick["bullish"]
+
+                # Get actual price data
+                ticker = yf.Ticker(nse(symbol))
+                hist   = ticker.history(period="1d")
+                if hist.empty:
+                    continue
+
+                actual_high  = safe_float(hist["High"].max())
+                actual_low   = safe_float(hist["Low"].min())
+                actual_close = safe_float(hist["Close"].iloc[-1])
+
+                # Determine result
+                if bullish:
+                    target_hit = actual_high >= target
+                    sl_hit     = actual_low  <= sl
+                else:
+                    target_hit = actual_low  <= target
+                    sl_hit     = actual_high >= sl
+
+                if target_hit and sl_hit:
+                    # Both hit — whichever came first (approximate by time)
+                    status = "TARGET_HIT"  # Conservative — assume target hit first
+                    result_label = "✅ Target Hit"
+                    result_color = "#00c9a7"
+                elif target_hit:
+                    status = "TARGET_HIT"
+                    result_label = "✅ Target Hit"
+                    result_color = "#00c9a7"
+                elif sl_hit:
+                    status = "SL_HIT"
+                    result_label = "❌ Stop Loss Hit"
+                    result_color = "#ef5350"
+                elif after_close:
+                    # Market closed — neither hit
+                    pct_move = ((actual_close - entry) / entry * 100) if bullish else ((entry - actual_close) / entry * 100)
+                    status = "EXPIRED"
+                    result_label = f"➖ Expired ({pct_move:+.2f}%)"
+                    result_color = "#ffd166"
+                else:
+                    # Market still open
+                    pct_move = ((actual_close - entry) / entry * 100) if bullish else ((entry - actual_close) / entry * 100)
+                    status = "IN_PROGRESS"
+                    result_label = f"⏳ In Progress ({pct_move:+.2f}%)"
+                    result_color = "#4db6ff"
+
+                results.append({
+                    **pick,
+                    "actual_high":  actual_high,
+                    "actual_low":   actual_low,
+                    "actual_close": actual_close,
+                    "status":       status,
+                    "result_label": result_label,
+                    "result_color": result_color,
+                })
+            except:
+                continue
+
+        # Summary stats
+        total      = len(results)
+        target_hits= sum(1 for r in results if r["status"] == "TARGET_HIT")
+        sl_hits    = sum(1 for r in results if r["status"] == "SL_HIT")
+        expired    = sum(1 for r in results if r["status"] == "EXPIRED")
+        in_progress= sum(1 for r in results if r["status"] == "IN_PROGRESS")
+        accuracy   = round(target_hits / (target_hits + sl_hits) * 100) if (target_hits + sl_hits) > 0 else 0
+
+        result = {
+            "date":        now_ist.strftime("%d %b %Y"),
+            "results":     results,
+            "summary": {
+                "total":       total,
+                "target_hits": target_hits,
+                "sl_hits":     sl_hits,
+                "expired":     expired,
+                "in_progress": in_progress,
+                "accuracy_pct":accuracy,
+            },
+            "after_close": after_close,
+        }
+        # Cache until midnight
+        midnight = now_ist.replace(hour=23, minute=59, second=0)
+        ttl = max(300, int((midnight - now_ist).total_seconds()))
+        cache_set("pick_results", result, ttl)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.on_event("startup")
 async def startup_event():
-    """Start background scheduler on app startup"""
     thread = threading.Thread(target=scheduler_loop, daemon=True)
     thread.start()
     print("Scheduler started")
