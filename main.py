@@ -1045,11 +1045,11 @@ def get_daily_picks_ttl():
     return max(3600, int((next_5am - now_ist).total_seconds()))
 
 def generate_picks():
-    """Generate picks for all stocks — runs once per day"""
-    now_ist  = datetime.utcnow() + timedelta(hours=5, minutes=30)
-    results  = []
+    """Generate picks for all stocks using parallel fetching"""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
 
-    # Pre-fetch shared signals once (cached anyway)
+    # Pre-fetch shared signals once (cached)
     global_data  = get_global_mood()
     global_score = global_data.get("mood_score", 0)
     gift_data    = get_gift_nifty()
@@ -1057,35 +1057,31 @@ def generate_picks():
     fii_data     = get_fii_dii_sentiment()
     fii_score    = fii_data.get("fii_score", 0)
 
-    for i, stock in enumerate(PICK_STOCKS):
+    def process_stock(stock):
         try:
             ticker = yf.Ticker(nse(stock["symbol"]))
             hist   = ticker.history(period="6mo")
-            if hist.empty: continue
-
+            if hist.empty: return None
             close   = hist["Close"].dropna()
+            if len(close) < 2: return None
             price   = safe_float(close.iloc[-1])
             prev    = safe_float(close.iloc[-2])
             change  = round(price - prev, 2)
             pct     = round((change / prev) * 100, 2) if prev else 0
             prices  = close.tolist()
             fc30    = arima_forecast(prices, 30)
-            fc7     = {k:v[:7] for k,v in fc30.items()}
             tech    = get_technicals(hist)
             bullish = fc30["predicted"][0] > price
-
             news_score, _ = get_news_sentiment(stock["symbol"])
             sector_pct, sector_mood = get_sector_momentum(stock["sector"])
             oi_data   = get_options_oi(stock["symbol"])
             oi_signal = oi_data.get("oi_signal", "Neutral")
-
             confidence = compute_confidence(
                 bullish, tech, news_score, global_score,
                 sector_pct, fii_score, oi_signal, price,
                 gift_nifty_pct=gift_pct
             )
-
-            results.append({
+            return {
                 "name":      stock["name"],
                 "symbol":    stock["symbol"],
                 "sector":    stock["sector"],
@@ -1099,25 +1095,34 @@ def generate_picks():
                 "target":    round(price * (1.08  if bullish else 0.92 ), 2),
                 "stop_loss": round(price * (0.96  if bullish else 1.04 ), 2),
                 "signals": {
-                    "rsi":            tech.get("rsi", 50),
-                    "macd_bullish":   tech.get("macd", 0) > tech.get("macd_signal", 0),
-                    "volume_ratio":   tech.get("volume_ratio", 1.0),
-                    "news_sentiment": news_score,
-                    "global_mood":    global_data.get("overall_mood", "Neutral"),
-                    "global_avg_pct": global_data.get("avg_pct", 0),
-                    "gift_nifty_pct": gift_pct,
-                    "gift_nifty_signal": gift_data.get("signal", "Neutral"),
-                    "sector_momentum":sector_mood,
-                    "sector_pct":     sector_pct,
-                    "fii_sentiment":  fii_data.get("fii_sentiment", "Neutral"),
-                    "options_pcr":    oi_data.get("pcr", 1.0),
-                    "options_signal": oi_signal,
-                    "broke_resistance":tech.get("broke_resistance", False),
-                    "broke_support":   tech.get("broke_support", False),
+                    "rsi":              tech.get("rsi", 50),
+                    "macd_bullish":     tech.get("macd", 0) > tech.get("macd_signal", 0),
+                    "volume_ratio":     tech.get("volume_ratio", 1.0),
+                    "news_sentiment":   news_score,
+                    "global_mood":      global_data.get("overall_mood", "Neutral"),
+                    "global_avg_pct":   global_data.get("avg_pct", 0),
+                    "gift_nifty_pct":   gift_pct,
+                    "gift_nifty_signal":gift_data.get("signal", "Neutral"),
+                    "sector_momentum":  sector_mood,
+                    "sector_pct":       sector_pct,
+                    "fii_sentiment":    fii_data.get("fii_sentiment", "Neutral"),
+                    "options_pcr":      oi_data.get("pcr", 1.0),
+                    "options_signal":   oi_signal,
+                    "broke_resistance": tech.get("broke_resistance", False),
+                    "broke_support":    tech.get("broke_support", False),
                 },
-            })
+            }
         except:
-            continue
+            return None
+
+    # Fetch all stocks in parallel — 10 workers
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_stock, s): s for s in PICK_STOCKS}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
 
     # Sort by confidence
     results.sort(key=lambda x: x["confidence"], reverse=True)
@@ -1125,18 +1130,16 @@ def generate_picks():
     sells = [r for r in results if not r["bullish"]][:10]
 
     return {
-        "generated_at":    now_ist.strftime("%d %b %Y, %I:%M %p IST"),
-        "generated_date":  now_ist.strftime("%Y-%m-%d"),
-        "next_refresh":    (now_ist.replace(hour=5,minute=0,second=0) + timedelta(days=1)).strftime("%d %b %Y, 05:00 AM IST"),
-        "total_scanned":   len(results),
-        "buy_picks":       buys,
-        "sell_picks":      sells,
-        "market_mood":     global_data.get("overall_mood", "Neutral"),
-        "gift_nifty":      gift_data.get("signal", "Neutral"),
-        "fii_activity":    fii_data.get("fii_sentiment", "Neutral"),
+        "generated_at":   now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+        "generated_date": now_ist.strftime("%Y-%m-%d"),
+        "next_refresh":   (now_ist.replace(hour=5,minute=0,second=0) + timedelta(days=1)).strftime("%d %b %Y, 05:00 AM IST"),
+        "total_scanned":  len(results),
+        "buy_picks":      buys,
+        "sell_picks":     sells,
+        "market_mood":    global_data.get("overall_mood", "Neutral"),
+        "gift_nifty":     gift_data.get("signal", "Neutral"),
+        "fii_activity":   fii_data.get("fii_sentiment", "Neutral"),
     }
-
-import threading
 
 import threading
 import time as time_module
@@ -1259,26 +1262,40 @@ def get_actual_price(symbol: str):
 @app.get("/pick-results")
 def get_pick_results():
     """
-    Check today's picks against actual prices after market close.
-    Returns hit/miss/in-progress status for each pick.
+    Check today's picks against actual prices.
+    Only returns results AFTER market closes at 3:30 PM IST.
     """
     try:
+        now_ist      = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday   = now_ist.weekday() < 5
+        market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        before_open  = now_ist < market_open
+        after_close  = now_ist > market_close
+        market_is_open = is_weekday and market_open <= now_ist <= market_close
+
+        # Only show results after market closes on a weekday
+        if not is_weekday:
+            return {"status":"weekend","message":"Market closed on weekends. Results available on trading days after 3:30 PM.","show_results":False}
+
+        if before_open:
+            return {"status":"before_market","message":"Market not yet open. Results will be available after 3:30 PM today.","show_results":False}
+
+        if market_is_open:
+            return {"status":"market_open","message":"Market is open. Results will be available after 3:30 PM.","show_results":False}
+
+        # Market is closed after 3:30 PM — now check results
         cached = cache_get("pick_results")
         if cached: return cached
 
-        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
-        is_weekday = now_ist.weekday() < 5
-        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-        after_close  = now_ist > market_close and is_weekday
-
         # Get today's picks
-        cache_key = get_daily_picks_cache_key()
+        cache_key  = get_daily_picks_cache_key()
         picks_data = cache_get(cache_key)
         if not picks_data:
-            return {"error": "No picks available for today"}
+            return {"status":"no_picks","message":"No picks available for today.","show_results":False}
 
-        all_picks = picks_data.get("buy_picks", []) + picks_data.get("sell_picks", [])
-        results = []
+        all_picks = picks_data.get("buy_picks",[]) + picks_data.get("sell_picks",[])
+        results   = []
 
         for pick in all_picks:
             try:
@@ -1288,55 +1305,51 @@ def get_pick_results():
                 sl      = pick["stop_loss"]
                 bullish = pick["bullish"]
 
-                # Get actual price data
+                # Get today's actual OHLC
                 ticker = yf.Ticker(nse(symbol))
                 hist   = ticker.history(period="1d")
-                if hist.empty:
-                    continue
+                if hist.empty: continue
 
                 actual_high  = safe_float(hist["High"].max())
                 actual_low   = safe_float(hist["Low"].min())
                 actual_close = safe_float(hist["Close"].iloc[-1])
+                actual_open  = safe_float(hist["Open"].iloc[0])
 
                 # Determine result
                 if bullish:
-                    target_hit = actual_high >= target
-                    sl_hit     = actual_low  <= sl
+                    target_hit = actual_high  >= target
+                    sl_hit     = actual_low   <= sl
+                    pct_move   = round((actual_close - entry) / entry * 100, 2)
                 else:
-                    target_hit = actual_low  <= target
-                    sl_hit     = actual_high >= sl
+                    target_hit = actual_low   <= target
+                    sl_hit     = actual_high  >= sl
+                    pct_move   = round((entry - actual_close) / entry * 100, 2)
 
-                if target_hit and sl_hit:
-                    # Both hit — whichever came first (approximate by time)
-                    status = "TARGET_HIT"  # Conservative — assume target hit first
-                    result_label = "✅ Target Hit"
+                if target_hit and not sl_hit:
+                    status       = "TARGET_HIT"
+                    result_label = f"✅ Target Hit (+{abs(pct_move):.2f}%)"
                     result_color = "#00c9a7"
-                elif target_hit:
-                    status = "TARGET_HIT"
-                    result_label = "✅ Target Hit"
-                    result_color = "#00c9a7"
-                elif sl_hit:
-                    status = "SL_HIT"
-                    result_label = "❌ Stop Loss Hit"
+                elif sl_hit and not target_hit:
+                    status       = "SL_HIT"
+                    result_label = f"❌ Stop Loss Hit ({pct_move:.2f}%)"
                     result_color = "#ef5350"
-                elif after_close:
-                    # Market closed — neither hit
-                    pct_move = ((actual_close - entry) / entry * 100) if bullish else ((entry - actual_close) / entry * 100)
-                    status = "EXPIRED"
+                elif target_hit and sl_hit:
+                    # Both hit — use close price to determine
+                    status       = "TARGET_HIT" if pct_move > 0 else "SL_HIT"
+                    result_label = f"✅ Target Hit" if pct_move > 0 else f"❌ SL Hit"
+                    result_color = "#00c9a7" if pct_move > 0 else "#ef5350"
+                else:
+                    status       = "EXPIRED"
                     result_label = f"➖ Expired ({pct_move:+.2f}%)"
                     result_color = "#ffd166"
-                else:
-                    # Market still open
-                    pct_move = ((actual_close - entry) / entry * 100) if bullish else ((entry - actual_close) / entry * 100)
-                    status = "IN_PROGRESS"
-                    result_label = f"⏳ In Progress ({pct_move:+.2f}%)"
-                    result_color = "#4db6ff"
 
                 results.append({
                     **pick,
+                    "actual_open":  actual_open,
                     "actual_high":  actual_high,
                     "actual_low":   actual_low,
                     "actual_close": actual_close,
+                    "pct_move":     pct_move,
                     "status":       status,
                     "result_label": result_label,
                     "result_color": result_color,
@@ -1345,33 +1358,33 @@ def get_pick_results():
                 continue
 
         # Summary stats
-        total      = len(results)
-        target_hits= sum(1 for r in results if r["status"] == "TARGET_HIT")
-        sl_hits    = sum(1 for r in results if r["status"] == "SL_HIT")
-        expired    = sum(1 for r in results if r["status"] == "EXPIRED")
-        in_progress= sum(1 for r in results if r["status"] == "IN_PROGRESS")
-        accuracy   = round(target_hits / (target_hits + sl_hits) * 100) if (target_hits + sl_hits) > 0 else 0
+        total       = len(results)
+        target_hits = sum(1 for r in results if r["status"]=="TARGET_HIT")
+        sl_hits     = sum(1 for r in results if r["status"]=="SL_HIT")
+        expired     = sum(1 for r in results if r["status"]=="EXPIRED")
+        accuracy    = round(target_hits/(target_hits+sl_hits)*100) if (target_hits+sl_hits)>0 else 0
 
         result = {
             "date":        now_ist.strftime("%d %b %Y"),
+            "show_results":True,
             "results":     results,
             "summary": {
                 "total":       total,
                 "target_hits": target_hits,
                 "sl_hits":     sl_hits,
                 "expired":     expired,
-                "in_progress": in_progress,
+                "in_progress": 0,
                 "accuracy_pct":accuracy,
             },
-            "after_close": after_close,
+            "after_close":True,
         }
         # Cache until midnight
         midnight = now_ist.replace(hour=23, minute=59, second=0)
-        ttl = max(300, int((midnight - now_ist).total_seconds()))
+        ttl = max(300, int((midnight-now_ist).total_seconds()))
         cache_set("pick_results", result, ttl)
         return result
     except Exception as e:
-        return {"error": str(e)}
+        return {"error":str(e),"show_results":False}
 
 @app.on_event("startup")
 async def startup_event():
