@@ -1180,27 +1180,37 @@ def daily_picks():
     if cached:
         cached["from_cache"] = True
         return cached
-    # Start background generation
-    thread = threading.Thread(target=generate_picks_background, daemon=True)
-    thread.start()
-    return {
-        "status":"generating",
-        "message":"Picks are being generated. Check back in 5-6 minutes.",
-        "total_scanned":0,"buy_picks":[],"sell_picks":[],
-        "from_cache":False,
-        "generated_at":(datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime("%d %b %Y, %I:%M %p IST"),
-        "next_refresh":"Tomorrow 05:00 AM IST",
-        "market_mood":"Loading...","gift_nifty":"Loading...","fii_activity":"Loading...",
-    }
+    # Generate synchronously — faster with parallel fetching
+    try:
+        picks = generate_picks()
+        ttl   = get_daily_picks_ttl()
+        cache_set(cache_key, picks, ttl)
+        picks["from_cache"] = False
+        return picks
+    except Exception as e:
+        return {
+            "status":"error",
+            "message":str(e),
+            "total_scanned":0,"buy_picks":[],"sell_picks":[],
+            "from_cache":False,
+            "generated_at":(datetime.utcnow()+timedelta(hours=5,minutes=30)).strftime("%d %b %Y, %I:%M %p IST"),
+            "next_refresh":"Tomorrow 05:00 AM IST",
+            "market_mood":"—","gift_nifty":"—","fii_activity":"—",
+        }
 
 @app.get("/daily-picks/refresh")
 def refresh_daily_picks():
     cache_key = get_daily_picks_cache_key()
     if cache_key in _cache:
         del _cache[cache_key]
-    thread = threading.Thread(target=generate_picks_background, daemon=True)
-    thread.start()
-    return {"status":"generating","message":"Picks regeneration started. Check back in 5-6 minutes."}
+    try:
+        picks = generate_picks()
+        ttl   = get_daily_picks_ttl()
+        cache_set(cache_key, picks, ttl)
+        picks["from_cache"] = False
+        return picks
+    except Exception as e:
+        return {"status":"error","message":str(e)}
 
 @app.get("/actual-price/{symbol}")
 def get_actual_price(symbol: str):
