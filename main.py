@@ -1050,30 +1050,39 @@ def generate_picks():
 import threading
 import time as time_module
 
+# Global flag to prevent multiple simultaneous generations
+_picks_generating = False
+
 def generate_picks_background():
     """Run pick generation in background thread"""
+    global _picks_generating
+    if _picks_generating:
+        print("Picks already generating — skipping")
+        return
+    _picks_generating = True
     try:
+        print("Starting picks generation...")
         picks = generate_picks()
         ttl   = get_daily_picks_ttl()
         cache_key = get_daily_picks_cache_key()
         cache_set(cache_key, picks, ttl)
-        print(f"Picks generated: {picks.get('total_scanned',0)} stocks")
+        print(f"Picks generated successfully: {picks.get('total_scanned',0)} stocks")
     except Exception as e:
         print(f"Background picks error: {e}")
+    finally:
+        _picks_generating = False
 
 def scheduler_loop():
     """Runs in background — generates picks once per day"""
-    # Wait 60 seconds after startup before first generation
-    time_module.sleep(60)
+    time_module.sleep(30)  # Wait 30 seconds after startup
     while True:
         try:
             cache_key = get_daily_picks_cache_key()
             cached = cache_get(cache_key)
-            if not cached:
+            if not cached and not _picks_generating:
                 now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
                 print(f"Scheduler: generating picks at {now_ist.strftime('%H:%M IST')}")
                 generate_picks_background()
-            # Check every 30 minutes
             time_module.sleep(1800)
         except Exception as e:
             print(f"Scheduler error: {e}")
@@ -1086,9 +1095,10 @@ def daily_picks():
     if cached:
         cached["from_cache"] = True
         return cached
-    # Start background generation
-    thread = threading.Thread(target=generate_picks_background, daemon=True)
-    thread.start()
+    # Start non-daemon thread — won't be killed by Render
+    if not _picks_generating:
+        thread = threading.Thread(target=generate_picks_background, daemon=False)
+        thread.start()
     return {
         "status":"generating",
         "message":"Picks are being generated.",
@@ -1104,8 +1114,9 @@ def refresh_daily_picks():
     cache_key = get_daily_picks_cache_key()
     if cache_key in _cache:
         del _cache[cache_key]
-    thread = threading.Thread(target=generate_picks_background, daemon=True)
-    thread.start()
+    if not _picks_generating:
+        thread = threading.Thread(target=generate_picks_background, daemon=False)
+        thread.start()
     return {"status":"generating","message":"Picks regeneration started."}
 
 @app.get("/actual-price/{symbol}")
