@@ -1121,44 +1121,58 @@ def refresh_daily_picks():
 
 @app.get("/actual-price/{symbol}")
 def get_actual_price(symbol: str):
-    """Get today's actual OHLC data for a stock — used for forecast accuracy tracking"""
+    """Get today's actual OHLC data — available from 9:15 AM until midnight IST"""
     try:
         cached = cache_get(f"actual_{symbol}")
         if cached: return cached
 
-        ticker = yf.Ticker(nse(symbol))
-        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
-        is_weekday = now_ist.weekday() < 5
+        now_ist      = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        is_weekday   = now_ist.weekday() < 5
         market_open  = now_ist.replace(hour=9,  minute=15, second=0, microsecond=0)
         market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-        market_is_open = is_weekday and market_open <= now_ist <= market_close
+        midnight     = now_ist.replace(hour=0,  minute=0,  second=0, microsecond=0)
+        market_is_open   = is_weekday and market_open <= now_ist <= market_close
+        after_close_today = is_weekday and now_ist > market_close  # 3:30 PM to midnight
+        before_market    = now_ist < market_open  # midnight to 9:15 AM
+
+        # Before market opens — no actual data to show
+        if before_market or not is_weekday:
+            return {
+                "symbol":        symbol.upper(),
+                "market_open":   False,
+                "show_actual":   False,
+                "actual_points": [],
+                "message":       "Market not yet open"
+            }
+
+        ticker = yf.Ticker(nse(symbol))
 
         if market_is_open:
-            # During market — get intraday 1min data
+            # Live intraday data
             hist = ticker.history(period="1d", interval="5m")
-            ttl  = 300  # cache 5 min during market
+            ttl  = 300  # cache 5 min
         else:
-            # After market — get today's daily OHLC
+            # After close — get today's daily OHLC
             hist = ticker.history(period="2d")
-            ttl  = 3600  # cache 1 hour after market
+            ttl  = 3600  # cache 1 hour
 
         if hist.empty:
-            return {"error": "No data"}
-
-        close  = hist["Close"].dropna()
-        high   = hist["High"].dropna()
-        low    = hist["Low"].dropna()
-        volume = hist["Volume"].dropna()
+            return {"symbol":symbol.upper(),"market_open":False,"show_actual":False,"actual_points":[]}
 
         # Build actual intraday points
         actual_points = []
         if market_is_open:
             for idx, row in hist.iterrows():
-                t = (idx + timedelta(hours=5, minutes=30)).strftime("%H:%M") if idx.tzinfo else idx.strftime("%H:%M")
-                actual_points.append({
-                    "time":  t,
-                    "price": safe_float(row["Close"]),
-                })
+                try:
+                    t = (idx.astimezone(None) + timedelta(hours=5, minutes=30)).strftime("%H:%M") if hasattr(idx, 'astimezone') else idx.strftime("%H:%M")
+                    actual_points.append({"time": t, "price": safe_float(row["Close"])})
+                except:
+                    pass
+
+        close  = hist["Close"].dropna()
+        high   = hist["High"].dropna()
+        low    = hist["Low"].dropna()
+        volume = hist["Volume"].dropna()
 
         result = {
             "symbol":        symbol.upper(),
@@ -1168,13 +1182,15 @@ def get_actual_price(symbol: str):
             "close":         safe_float(close.iloc[-1]),
             "volume":        safe_int(volume.sum()),
             "market_open":   market_is_open,
+            "show_actual":   True,  # Show actual data from 9:15 AM to midnight
+            "after_close":   after_close_today,
             "actual_points": actual_points,
             "time_ist":      now_ist.strftime("%H:%M"),
         }
         cache_set(f"actual_{symbol}", result, ttl)
         return result
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": str(e), "show_actual": False, "actual_points": []}
 
 @app.get("/pick-results")
 def get_pick_results():
