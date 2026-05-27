@@ -705,6 +705,24 @@ def get_stock(symbol:str):
         reasons.append(f"FII activity: {fii_data.get('fii_sentiment','Neutral')}")
         reasons.append(f"Options OI: {oi_signal} (PCR: {oi_data.get('pcr',1.0):.2f})")
 
+        # Build historical actual prices for 7-day and 30-day charts
+        now_ist      = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+        after_close  = now_ist > market_close and now_ist.weekday() < 5
+
+        # Last 30 trading days actual closing prices
+        hist_30 = hist.tail(30)
+        actual_history = []
+        for idx, row in hist_30.iterrows():
+            try:
+                date_str = idx.strftime("%d %b") if hasattr(idx, 'strftime') else str(idx)[:10]
+                actual_history.append({
+                    "date":  date_str,
+                    "price": safe_float(row["Close"]),
+                })
+            except:
+                pass
+
         return {
             "symbol":symbol.upper(),"price":price,"change":change,"pct":pct,
             "high":safe_float(high.iloc[-1]),"low":safe_float(low.iloc[-1]),
@@ -716,6 +734,7 @@ def get_stock(symbol:str):
                 "day7":{"dates":dates[:7],"data":fc7},
                 "day30":{"dates":dates,"data":fc30},
             },
+            "actual_history": actual_history,
             "recommendation":{
                 "action":"BUY" if bullish else "SELL","confidence":confidence,
                 "entry":round(price*(1.002 if bullish else 0.998),2),
