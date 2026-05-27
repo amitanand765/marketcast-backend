@@ -764,7 +764,7 @@ def get_stock(symbol:str):
                 "day7":  fc7_full,
                 "day30": fc30_full,
             },
-            "actual_history": actual_history,
+            "actual_history": past5_pairs,
             "recommendation":{
                 "action":"BUY" if bullish else "SELL","confidence":confidence,
                 "entry":round(price*(1.002 if bullish else 0.998),2),
