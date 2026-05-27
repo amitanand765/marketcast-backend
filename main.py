@@ -728,67 +728,18 @@ def get_stock(symbol:str):
         reasons.append(f"FII activity: {fii_data.get('fii_sentiment','Neutral')}")
         reasons.append(f"Options OI: {oi_signal} (PCR: {oi_data.get('pcr',1.0):.2f})")
 
-        # Past dates for charts
-        def past_trading_dates(n):
-            dates = []
-            d = datetime.today()
-            while len(dates) < n:
-                d -= timedelta(days=1)
-                if d.weekday() < 5:
-                    dates.insert(0, d.strftime("%d %b"))
-            return dates
+        # Past dates for charts — use actual dates from yfinance history
+        hist_tail5   = hist.tail(5)
+        hist_tail2   = hist.tail(2)
+        past5_actual = [safe_float(v) for v in hist_tail5["Close"].dropna().tolist()]
+        past2_actual = [safe_float(v) for v in hist_tail2["Close"].dropna().tolist()]
+        past5_dates  = [idx.strftime("%d %b") for idx in hist_tail5.index]
+        past2_dates  = [idx.strftime("%d %b") for idx in hist_tail2.index]
 
-        # Get past 5 days forecast vs actual for charts
-        past5_dates  = past_trading_dates(5)
-        past2_dates  = past5_dates[-2:]
-        past5_actual = [safe_float(close.iloc[-5+i]) if len(close) >= 5 else safe_float(close.iloc[-1]) for i in range(5)]
-        past2_actual = past5_actual[-2:]
+        fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
+        fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
 
-        # ARIMA forecast for past days (run on data excluding last N days)
-        def past_arima(prices, exclude_last, steps):
-            try:
-                data_for_forecast = prices[:-exclude_last] if exclude_last > 0 else prices
-                return arima_forecast(data_for_forecast, steps)
-            except:
-                return {"predicted": prices[-steps:], "upper": [], "lower": []}
-
-        # 7-day chart: past 2 days forecast + next 7 days forecast
-        past2_fc   = past_arima(prices, 2, 2)
-        fc7_full   = {
-            "past_dates":    past2_dates,
-            "past_actual":   past2_actual,
-            "past_forecast": past2_fc["predicted"],
-            "dates":         dates[:7],
-            "data":          fc7,
-        }
-
-        # 30-day chart: past 5 days forecast + next 25 days forecast
-        past5_fc   = past_arima(prices, 5, 5)
-        fc30_full  = {
-            "past_dates":    past5_dates,
-            "past_actual":   past5_actual,
-            "past_forecast": past5_fc["predicted"],
-            "dates":         dates,
-            "data":          fc30,
-        }
-
-        # Build historical actual prices for charts
-        now_ist      = datetime.utcnow() + timedelta(hours=5, minutes=30)
-        market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
-        after_close  = now_ist > market_close and now_ist.weekday() < 5
-
-        hist_30 = hist.tail(30)
-        actual_history = []
-        for idx, row in hist_30.iterrows():
-            try:
-                date_str = idx.strftime("%d %b") if hasattr(idx, 'strftime') else str(idx)[:10]
-                actual_history.append({
-                    "date":  date_str,
-                    "price": safe_float(row["Close"]),
-                })
-            except:
-                pass
-
+        now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
         result = {
             "symbol":symbol.upper(),"price":price,"change":change,"pct":pct,
             "high":safe_float(high.iloc[-1]),"low":safe_float(low.iloc[-1]),
@@ -1207,15 +1158,13 @@ def generate_all_forecasts():
                     fc7    = {k:v[:7] for k,v in fc30.items()}
                     tech   = get_technicals(hist)
 
-                    # Past days data
-                    past5_actual = [safe_float(close.iloc[-5+i]) if len(close)>=5 else price for i in range(5)]
-                    past2_actual = past5_actual[-2:]
-                    temp = []; d = datetime.today()
-                    while len(temp) < 5:
-                        d -= timedelta(days=1)
-                        if d.weekday() < 5: temp.insert(0, d.strftime("%d %b"))
-                    past5_dates = temp
-                    past2_dates = past5_dates[-2:]
+                    # Past days data — use actual dates from yfinance history
+                    hist_tail5 = hist.tail(5)
+                    hist_tail2 = hist.tail(2)
+                    past5_actual = [safe_float(v) for v in hist_tail5["Close"].dropna().tolist()]
+                    past2_actual = [safe_float(v) for v in hist_tail2["Close"].dropna().tolist()]
+                    past5_dates  = [idx.strftime("%d %b") for idx in hist_tail5.index]
+                    past2_dates  = [idx.strftime("%d %b") for idx in hist_tail2.index]
 
                     fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
                     fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
