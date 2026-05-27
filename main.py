@@ -729,12 +729,25 @@ def get_stock(symbol:str):
         reasons.append(f"Options OI: {oi_signal} (PCR: {oi_data.get('pcr',1.0):.2f})")
 
         # Past dates for charts — use actual dates from yfinance history
-        hist_tail5   = hist.tail(5)
-        hist_tail2   = hist.tail(2)
-        past5_actual = [safe_float(v) for v in hist_tail5["Close"].dropna().tolist()]
-        past2_actual = [safe_float(v) for v in hist_tail2["Close"].dropna().tolist()]
-        past5_dates  = [idx.strftime("%d %b") for idx in hist_tail5.index]
-        past2_dates  = [idx.strftime("%d %b") for idx in hist_tail2.index]
+        hist_tail5 = hist.tail(5)
+        hist_tail2 = hist.tail(2)
+
+        def fmt_idx(idx):
+            try:
+                if idx.tzinfo is not None:
+                    import pytz
+                    idx = idx.astimezone(pytz.timezone('Asia/Kolkata'))
+                return idx.strftime("%d %b")
+            except:
+                return str(idx)[:6]
+
+        # Build aligned date-price pairs from history
+        past5_pairs  = [(fmt_idx(idx), safe_float(row["Close"])) for idx, row in hist_tail5.iterrows()]
+        past2_pairs  = [(fmt_idx(idx), safe_float(row["Close"])) for idx, row in hist_tail2.iterrows()]
+        past5_dates  = [p[0] for p in past5_pairs]
+        past5_actual = [p[1] for p in past5_pairs]
+        past2_dates  = [p[0] for p in past2_pairs]
+        past2_actual = [p[1] for p in past2_pairs]
 
         fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
         fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
@@ -1158,13 +1171,25 @@ def generate_all_forecasts():
                     fc7    = {k:v[:7] for k,v in fc30.items()}
                     tech   = get_technicals(hist)
 
-                    # Past days data — use actual dates from yfinance history
+                    # Past days data — aligned date-price pairs from yfinance
                     hist_tail5 = hist.tail(5)
                     hist_tail2 = hist.tail(2)
-                    past5_actual = [safe_float(v) for v in hist_tail5["Close"].dropna().tolist()]
-                    past2_actual = [safe_float(v) for v in hist_tail2["Close"].dropna().tolist()]
-                    past5_dates  = [idx.strftime("%d %b") for idx in hist_tail5.index]
-                    past2_dates  = [idx.strftime("%d %b") for idx in hist_tail2.index]
+
+                    def fmt_idx(idx):
+                        try:
+                            if idx.tzinfo is not None:
+                                import pytz
+                                idx = idx.astimezone(pytz.timezone('Asia/Kolkata'))
+                            return idx.strftime("%d %b")
+                        except:
+                            return str(idx)[:6]
+
+                    past5_pairs  = [(fmt_idx(idx), safe_float(row["Close"])) for idx, row in hist_tail5.iterrows()]
+                    past2_pairs  = [(fmt_idx(idx), safe_float(row["Close"])) for idx, row in hist_tail2.iterrows()]
+                    past5_dates  = [p[0] for p in past5_pairs]
+                    past5_actual = [p[1] for p in past5_pairs]
+                    past2_dates  = [p[0] for p in past2_pairs]
+                    past2_actual = [p[1] for p in past2_pairs]
 
                     fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
                     fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
