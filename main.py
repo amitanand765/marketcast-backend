@@ -652,6 +652,29 @@ def sector_momentum():
 @app.get("/stock/{symbol}")
 def get_stock(symbol:str):
     try:
+        now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        today_date = now_ist.strftime("%Y-%m-%d")
+        stock_cache_key = f"stock_{symbol}_{today_date}"
+
+        # Return pre-generated forecast if available
+        cached = cache_get(stock_cache_key)
+        if cached:
+            # Update live price, change, actual data
+            try:
+                ticker = yf.Ticker(nse(symbol))
+                hist   = ticker.history(period="2d")
+                if not hist.empty:
+                    close  = hist["Close"].dropna()
+                    price  = safe_float(close.iloc[-1])
+                    prev   = safe_float(close.iloc[-2])
+                    cached["price"]  = price
+                    cached["change"] = round(price - prev, 2)
+                    cached["pct"]    = round((price - prev) / prev * 100, 2) if prev else 0
+                    cached["high"]   = safe_float(hist["High"].dropna().iloc[-1])
+                    cached["low"]    = safe_float(hist["Low"].dropna().iloc[-1])
+            except:
+                pass
+            return cached
         ticker = yf.Ticker(nse(symbol))
         hist   = ticker.history(period="6mo")
         if hist.empty: return {"error":"Symbol not found"}
@@ -705,12 +728,55 @@ def get_stock(symbol:str):
         reasons.append(f"FII activity: {fii_data.get('fii_sentiment','Neutral')}")
         reasons.append(f"Options OI: {oi_signal} (PCR: {oi_data.get('pcr',1.0):.2f})")
 
-        # Build historical actual prices for 7-day and 30-day charts
+        # Past dates for charts
+        def past_trading_dates(n):
+            dates = []
+            d = datetime.today()
+            while len(dates) < n:
+                d -= timedelta(days=1)
+                if d.weekday() < 5:
+                    dates.insert(0, d.strftime("%d %b"))
+            return dates
+
+        # Get past 5 days forecast vs actual for charts
+        past5_dates  = past_trading_dates(5)
+        past2_dates  = past5_dates[-2:]
+        past5_actual = [safe_float(close.iloc[-5+i]) if len(close) >= 5 else safe_float(close.iloc[-1]) for i in range(5)]
+        past2_actual = past5_actual[-2:]
+
+        # ARIMA forecast for past days (run on data excluding last N days)
+        def past_arima(prices, exclude_last, steps):
+            try:
+                data_for_forecast = prices[:-exclude_last] if exclude_last > 0 else prices
+                return arima_forecast(data_for_forecast, steps)
+            except:
+                return {"predicted": prices[-steps:], "upper": [], "lower": []}
+
+        # 7-day chart: past 2 days forecast + next 7 days forecast
+        past2_fc   = past_arima(prices, 2, 2)
+        fc7_full   = {
+            "past_dates":    past2_dates,
+            "past_actual":   past2_actual,
+            "past_forecast": past2_fc["predicted"],
+            "dates":         dates[:7],
+            "data":          fc7,
+        }
+
+        # 30-day chart: past 5 days forecast + next 25 days forecast
+        past5_fc   = past_arima(prices, 5, 5)
+        fc30_full  = {
+            "past_dates":    past5_dates,
+            "past_actual":   past5_actual,
+            "past_forecast": past5_fc["predicted"],
+            "dates":         dates,
+            "data":          fc30,
+        }
+
+        # Build historical actual prices for charts
         now_ist      = datetime.utcnow() + timedelta(hours=5, minutes=30)
         market_close = now_ist.replace(hour=15, minute=30, second=0, microsecond=0)
         after_close  = now_ist > market_close and now_ist.weekday() < 5
 
-        # Last 30 trading days actual closing prices
         hist_30 = hist.tail(30)
         actual_history = []
         for idx, row in hist_30.iterrows():
@@ -723,7 +789,7 @@ def get_stock(symbol:str):
             except:
                 pass
 
-        return {
+        result = {
             "symbol":symbol.upper(),"price":price,"change":change,"pct":pct,
             "high":safe_float(high.iloc[-1]),"low":safe_float(low.iloc[-1]),
             "volume":safe_int(volume.iloc[-1]),
@@ -731,8 +797,8 @@ def get_stock(symbol:str):
             "sector":sector,"technicals":tech,
             "forecast":{
                 "intraday":intraday_forecast(price, fc30["predicted"][0]),
-                "day7":{"dates":dates[:7],"data":fc7},
-                "day30":{"dates":dates,"data":fc30},
+                "day7":  fc7_full,
+                "day30": fc30_full,
             },
             "actual_history": actual_history,
             "recommendation":{
@@ -756,6 +822,11 @@ def get_stock(symbol:str):
             },
             "options_oi":oi_data,"news_headlines":news_articles,
         }
+        # Cache until midnight IST
+        midnight = now_ist.replace(hour=23, minute=59, second=0)
+        ttl = max(300, int((midnight - now_ist).total_seconds()))
+        cache_set(stock_cache_key, result, ttl)
+        return result
     except Exception as e:
         return {"error":str(e)}
 
@@ -1091,18 +1162,121 @@ def generate_picks_background():
     finally:
         _picks_generating = False
 
+_forecast_generating = False
+
+def generate_all_forecasts():
+    """Generate and cache forecasts for all 152 stocks at 12:01 AM IST"""
+    global _forecast_generating
+    if _forecast_generating:
+        return
+    _forecast_generating = True
+    try:
+        now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
+        today_date = now_ist.strftime("%Y-%m-%d")
+        print(f"Generating forecasts for all stocks at {now_ist.strftime('%H:%M IST')}...")
+        count = 0
+        for stock in PICK_STOCKS:
+            try:
+                symbol = stock["symbol"]
+                cache_key = f"stock_{symbol}_{today_date}"
+                if cache_get(cache_key):
+                    continue  # Already generated
+                ticker = yf.Ticker(nse(symbol))
+                hist   = ticker.history(period="6mo")
+                if hist.empty: continue
+                close  = hist["Close"].dropna()
+                if len(close) < 10: continue
+                price  = safe_float(close.iloc[-1])
+                prev   = safe_float(close.iloc[-2])
+                change = round(price - prev, 2)
+                pct    = round((change / prev) * 100, 2) if prev else 0
+                prices = close.tolist()
+                dates  = forecast_dates(30)
+                fc30   = arima_forecast(prices, 30)
+                fc7    = {k:v[:7] for k,v in fc30.items()}
+                tech   = get_technicals(hist)
+                bullish= fc30["predicted"][0] > price
+
+                # Past days for charts
+                past5_actual = [safe_float(close.iloc[-5+i]) if len(close)>=5 else price for i in range(5)]
+                past2_actual = past5_actual[-2:]
+                past5_dates  = []
+                past2_dates  = []
+                d = datetime.today()
+                temp = []
+                while len(temp) < 5:
+                    d -= timedelta(days=1)
+                    if d.weekday() < 5:
+                        temp.insert(0, d.strftime("%d %b"))
+                past5_dates = temp
+                past2_dates = past5_dates[-2:]
+
+                fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
+                fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
+
+                forecast_result = {
+                    "symbol": symbol.upper(),
+                    "price": price, "change": change, "pct": pct,
+                    "high": safe_float(hist["High"].dropna().iloc[-1]),
+                    "low":  safe_float(hist["Low"].dropna().iloc[-1]),
+                    "volume": safe_int(hist["Volume"].dropna().iloc[-1]),
+                    "week52high": safe_float(hist["High"].dropna().max()),
+                    "week52low":  safe_float(hist["Low"].dropna().min()),
+                    "sector": stock["sector"],
+                    "technicals": tech,
+                    "forecast": {
+                        "intraday": intraday_forecast(price, fc30["predicted"][0]),
+                        "day7":  fc7_full,
+                        "day30": fc30_full,
+                    },
+                    "generated_at": now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+                }
+                # Cache until next midnight IST
+                midnight = now_ist.replace(hour=23, minute=59, second=0)
+                ttl = max(3600, int((midnight - now_ist).total_seconds()))
+                cache_set(cache_key, forecast_result, ttl)
+                count += 1
+            except Exception as e:
+                print(f"Forecast error for {stock['symbol']}: {e}")
+                continue
+        print(f"Forecasts generated for {count} stocks")
+    except Exception as e:
+        print(f"generate_all_forecasts error: {e}")
+    finally:
+        _forecast_generating = False
+
 def scheduler_loop():
-    """Runs in background — generates picks once per day"""
+    """Runs in background — generates picks and forecasts at right times"""
     time_module.sleep(30)  # Wait 30 seconds after startup
     while True:
         try:
-            cache_key = get_daily_picks_cache_key()
-            cached = cache_get(cache_key)
-            if not cached and not _picks_generating:
-                now_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
-                print(f"Scheduler: generating picks at {now_ist.strftime('%H:%M IST')}")
+            now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
+            today_date = now_ist.strftime("%Y-%m-%d")
+            hour       = now_ist.hour
+            minute     = now_ist.minute
+
+            # Generate forecasts at 12:01 AM IST for all stocks
+            forecast_done_key = f"forecasts_done_{today_date}"
+            if hour == 0 and minute >= 1 and not cache_get(forecast_done_key):
+                print("12:01 AM — Starting forecast generation for all stocks")
+                thread = threading.Thread(target=generate_all_forecasts, daemon=False)
+                thread.start()
+                cache_set(forecast_done_key, True, 86400)
+
+            # Generate picks at 5:00 AM IST
+            picks_cache_key = get_daily_picks_cache_key()
+            if hour == 5 and minute < 30 and not cache_get(picks_cache_key) and not _picks_generating:
+                print("5:00 AM — Starting picks generation")
                 generate_picks_background()
-            time_module.sleep(1800)
+
+            # Also generate forecasts on startup if not done today
+            if not cache_get(forecast_done_key) and not _forecast_generating:
+                print(f"Startup: generating forecasts for {today_date}")
+                thread = threading.Thread(target=generate_all_forecasts, daemon=False)
+                thread.start()
+                cache_set(forecast_done_key, True, 86400)
+
+            time_module.sleep(1800)  # Check every 30 minutes
         except Exception as e:
             print(f"Scheduler error: {e}")
             time_module.sleep(300)
