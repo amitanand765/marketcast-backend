@@ -1162,10 +1162,8 @@ def generate_picks_background():
     finally:
         _picks_generating = False
 
-_forecast_generating = False
-
 def generate_all_forecasts():
-    """Generate and cache forecasts for all 152 stocks at 12:01 AM IST"""
+    """Generate forecasts in batches of 25 stocks with delays"""
     global _forecast_generating
     if _forecast_generating:
         return
@@ -1173,73 +1171,88 @@ def generate_all_forecasts():
     try:
         now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
         today_date = now_ist.strftime("%Y-%m-%d")
-        print(f"Generating forecasts for all stocks at {now_ist.strftime('%H:%M IST')}...")
+        print(f"Starting batch forecast generation at {now_ist.strftime('%H:%M IST')}...")
+
+        batch_size = 25
+        total = len(PICK_STOCKS)
         count = 0
-        for stock in PICK_STOCKS:
-            try:
-                symbol = stock["symbol"]
-                cache_key = f"stock_{symbol}_{today_date}"
-                if cache_get(cache_key):
-                    continue  # Already generated
-                ticker = yf.Ticker(nse(symbol))
-                hist   = ticker.history(period="6mo")
-                if hist.empty: continue
-                close  = hist["Close"].dropna()
-                if len(close) < 10: continue
-                price  = safe_float(close.iloc[-1])
-                prev   = safe_float(close.iloc[-2])
-                change = round(price - prev, 2)
-                pct    = round((change / prev) * 100, 2) if prev else 0
-                prices = close.tolist()
-                dates  = forecast_dates(30)
-                fc30   = arima_forecast(prices, 30)
-                fc7    = {k:v[:7] for k,v in fc30.items()}
-                tech   = get_technicals(hist)
-                bullish= fc30["predicted"][0] > price
 
-                # Past days for charts
-                past5_actual = [safe_float(close.iloc[-5+i]) if len(close)>=5 else price for i in range(5)]
-                past2_actual = past5_actual[-2:]
-                past5_dates  = []
-                past2_dates  = []
-                d = datetime.today()
-                temp = []
-                while len(temp) < 5:
-                    d -= timedelta(days=1)
-                    if d.weekday() < 5:
-                        temp.insert(0, d.strftime("%d %b"))
-                past5_dates = temp
-                past2_dates = past5_dates[-2:]
+        for batch_start in range(0, total, batch_size):
+            batch = PICK_STOCKS[batch_start:batch_start+batch_size]
+            batch_num = batch_start//batch_size + 1
+            total_batches = (total+batch_size-1)//batch_size
+            print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} stocks)...")
 
-                fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
-                fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
+            for stock in batch:
+                try:
+                    symbol    = stock["symbol"]
+                    cache_key = f"stock_{symbol}_{today_date}"
+                    if cache_get(cache_key):
+                        count += 1
+                        continue
 
-                forecast_result = {
-                    "symbol": symbol.upper(),
-                    "price": price, "change": change, "pct": pct,
-                    "high": safe_float(hist["High"].dropna().iloc[-1]),
-                    "low":  safe_float(hist["Low"].dropna().iloc[-1]),
-                    "volume": safe_int(hist["Volume"].dropna().iloc[-1]),
-                    "week52high": safe_float(hist["High"].dropna().max()),
-                    "week52low":  safe_float(hist["Low"].dropna().min()),
-                    "sector": stock["sector"],
-                    "technicals": tech,
-                    "forecast": {
-                        "intraday": intraday_forecast(price, fc30["predicted"][0]),
-                        "day7":  fc7_full,
-                        "day30": fc30_full,
-                    },
-                    "generated_at": now_ist.strftime("%d %b %Y, %I:%M %p IST"),
-                }
-                # Cache until next midnight IST
-                midnight = now_ist.replace(hour=23, minute=59, second=0)
-                ttl = max(3600, int((midnight - now_ist).total_seconds()))
-                cache_set(cache_key, forecast_result, ttl)
-                count += 1
-            except Exception as e:
-                print(f"Forecast error for {stock['symbol']}: {e}")
-                continue
-        print(f"Forecasts generated for {count} stocks")
+                    ticker = yf.Ticker(nse(symbol))
+                    hist   = ticker.history(period="6mo")
+                    if hist.empty: continue
+                    close  = hist["Close"].dropna()
+                    if len(close) < 10: continue
+
+                    price  = safe_float(close.iloc[-1])
+                    prev   = safe_float(close.iloc[-2])
+                    change = round(price - prev, 2)
+                    pct    = round((change / prev) * 100, 2) if prev else 0
+                    prices = close.tolist()
+                    dates  = forecast_dates(30)
+                    fc30   = arima_forecast(prices, 30)
+                    fc7    = {k:v[:7] for k,v in fc30.items()}
+                    tech   = get_technicals(hist)
+
+                    # Past days data
+                    past5_actual = [safe_float(close.iloc[-5+i]) if len(close)>=5 else price for i in range(5)]
+                    past2_actual = past5_actual[-2:]
+                    temp = []; d = datetime.today()
+                    while len(temp) < 5:
+                        d -= timedelta(days=1)
+                        if d.weekday() < 5: temp.insert(0, d.strftime("%d %b"))
+                    past5_dates = temp
+                    past2_dates = past5_dates[-2:]
+
+                    fc7_full  = {"past_dates":past2_dates,"past_actual":past2_actual,"past_forecast":past2_actual,"dates":dates[:7],"data":fc7}
+                    fc30_full = {"past_dates":past5_dates,"past_actual":past5_actual,"past_forecast":past5_actual,"dates":dates,"data":fc30}
+
+                    result = {
+                        "symbol":  symbol.upper(),
+                        "price":   price, "change": change, "pct": pct,
+                        "high":    safe_float(hist["High"].dropna().iloc[-1]),
+                        "low":     safe_float(hist["Low"].dropna().iloc[-1]),
+                        "volume":  safe_int(hist["Volume"].dropna().iloc[-1]),
+                        "week52high": safe_float(hist["High"].dropna().max()),
+                        "week52low":  safe_float(hist["Low"].dropna().min()),
+                        "sector":  stock["sector"],
+                        "technicals": tech,
+                        "forecast": {
+                            "intraday": intraday_forecast(price, fc30["predicted"][0]),
+                            "day7":  fc7_full,
+                            "day30": fc30_full,
+                        },
+                        "generated_at": now_ist.strftime("%d %b %Y, %I:%M %p IST"),
+                    }
+
+                    # Cache until 11:59 PM tonight
+                    midnight = now_ist.replace(hour=23, minute=59, second=0)
+                    ttl = max(3600, int((midnight - now_ist).total_seconds()))
+                    cache_set(cache_key, result, ttl)
+                    count += 1
+                except Exception as e:
+                    print(f"Forecast error {stock['symbol']}: {e}")
+                    continue
+
+            print(f"Batch {batch_num} done — {count} stocks forecasted so far")
+            # Sleep 2 minutes between batches to avoid rate limiting
+            if batch_start + batch_size < total:
+                time_module.sleep(120)
+
+        print(f"All forecasts done! {count}/{total} stocks generated")
     except Exception as e:
         print(f"generate_all_forecasts error: {e}")
     finally:
@@ -1247,7 +1260,7 @@ def generate_all_forecasts():
 
 def scheduler_loop():
     """Runs in background — generates picks and forecasts at right times"""
-    time_module.sleep(30)  # Wait 30 seconds after startup
+    time_module.sleep(60)  # Wait 60 seconds after startup before doing anything
     while True:
         try:
             now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
@@ -1257,7 +1270,7 @@ def scheduler_loop():
 
             # Generate forecasts at 12:01 AM IST for all stocks
             forecast_done_key = f"forecasts_done_{today_date}"
-            if hour == 0 and minute >= 1 and not cache_get(forecast_done_key):
+            if hour == 0 and minute >= 1 and not cache_get(forecast_done_key) and not _forecast_generating:
                 print("12:01 AM — Starting forecast generation for all stocks")
                 thread = threading.Thread(target=generate_all_forecasts, daemon=False)
                 thread.start()
@@ -1268,13 +1281,6 @@ def scheduler_loop():
             if hour == 5 and minute < 30 and not cache_get(picks_cache_key) and not _picks_generating:
                 print("5:00 AM — Starting picks generation")
                 generate_picks_background()
-
-            # Also generate forecasts on startup if not done today
-            if not cache_get(forecast_done_key) and not _forecast_generating:
-                print(f"Startup: generating forecasts for {today_date}")
-                thread = threading.Thread(target=generate_all_forecasts, daemon=False)
-                thread.start()
-                cache_set(forecast_done_key, True, 86400)
 
             time_module.sleep(1800)  # Check every 30 minutes
         except Exception as e:
@@ -1311,6 +1317,20 @@ def refresh_daily_picks():
         thread = threading.Thread(target=generate_picks_background, daemon=False)
         thread.start()
     return {"status":"generating","message":"Picks regeneration started."}
+
+@app.get("/forecast-status")
+def forecast_status():
+    """Check how many stock forecasts are generated for today"""
+    now_ist    = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    today_date = now_ist.strftime("%Y-%m-%d")
+    done = sum(1 for s in PICK_STOCKS if cache_get(f"stock_{s['symbol']}_{today_date}"))
+    return {
+        "date": today_date,
+        "generated": done,
+        "total": len(PICK_STOCKS),
+        "generating": _forecast_generating,
+        "percent": round(done/len(PICK_STOCKS)*100),
+    }
 
 @app.get("/actual-price/{symbol}")
 def get_actual_price(symbol: str):
